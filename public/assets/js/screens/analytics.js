@@ -3,6 +3,10 @@ import { navigate } from '../router.js';
 import { getEvents, getAllEvents, getAllUnits, getUnit, dateRangeForPeriod, computeRanking } from '../services/firestore.js';
 import { stockistPhoto } from '../services/photos.js';
 
+// Cache de 5 min para analytics — evita centenas de leituras desnecessárias
+const _cache = new Map();
+const CACHE_TTL = 5 * 60 * 1000;
+
 function toDate(ts) {
   if (!ts) return new Date(0);
   if (typeof ts.toDate === 'function') return ts.toDate();
@@ -44,12 +48,17 @@ export async function renderAnalytics(container, params) {
   container.innerHTML = `
     <div class="topbar">
       <button class="btn btn--ghost btn--sm" id="back-btn">← VOLTAR</button>
-      <div class="topbar-logo" style="font-size:0.85rem;">📊 ANALYTICS</div>
-      <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <div class="topbar-logo" style="font-size:0.85rem;">📊 ANALYTICS</div>
+        <div id="cache-badge" style="display:none;font-family:var(--font-terminal);font-size:0.6rem;
+             color:var(--muted-fg);letter-spacing:0.1em;background:var(--muted);padding:0.15rem 0.4rem;"></div>
+      </div>
+      <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">
         ${['today','week','month','all'].map(p => `
           <button class="filter-btn period-btn ${p===period?'active':''}" data-period="${p}">
             ${p==='today'?'HOJE':p==='week'?'SEMANA':p==='month'?'MÊS':'SEMPRE'}
           </button>`).join('')}
+        <button id="refresh-btn" class="btn btn--ghost btn--sm" title="Forçar atualização">↺</button>
       </div>
     </div>
     <div class="page screen-enter" id="an-page">
@@ -69,11 +78,28 @@ export async function renderAnalytics(container, params) {
       load();
     });
   });
+  container.querySelector('#refresh-btn').addEventListener('click', () => load(true));
 
   const page = container.querySelector('#an-page');
+  const cacheBadge = container.querySelector('#cache-badge');
 
-  async function load() {
+  async function load(forceRefresh = false) {
+    const cacheKey = `${period}:${isAdmin ? 'admin' : ctx.unitId}`;
+
+    if (!forceRefresh) {
+      const hit = _cache.get(cacheKey);
+      if (hit && Date.now() - hit.ts < CACHE_TTL) {
+        const age = Math.floor((Date.now() - hit.ts) / 1000);
+        cacheBadge.style.display = '';
+        cacheBadge.textContent   = `CACHE · ${age}s atrás`;
+        render(hit.events, hit.units, hit.stockistNames);
+        return;
+      }
+    }
+
+    cacheBadge.style.display = 'none';
     page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div><div class="text-muted mt-2" style="font-family:var(--font-terminal);letter-spacing:0.2em;font-size:0.75rem;">PROCESSANDO DADOS...</div></div>`;
+
     try {
       const { startDate } = dateRangeForPeriod(period);
       let events = [], units = [], stockistNames = {};
@@ -93,6 +119,8 @@ export async function renderAnalytics(container, params) {
       }
 
       units.forEach(u => (u.stockists || []).forEach(s => { stockistNames[s.id] = s.name; }));
+      _cache.set(cacheKey, { events, units, stockistNames, ts: Date.now() });
+      cacheBadge.style.display = 'none';
       render(events, units, stockistNames);
     } catch (err) {
       page.innerHTML = `<div class="text-center mt-4 text-destructive">Erro: ${err.message}</div>`;

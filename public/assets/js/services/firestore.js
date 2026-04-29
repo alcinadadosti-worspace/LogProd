@@ -4,16 +4,29 @@ import {
   collection, query, where, orderBy, limit,
   getDocs, onSnapshot, Timestamp, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import { cacheGet, cacheSet, cacheDel, cacheDelPrefix } from './cache.js';
+
+const TTL = {
+  config: 30 * 60 * 1000,  // 30 min — config quase nunca muda
+  unit:   10 * 60 * 1000,  // 10 min — lista de estoquistas raramente muda
+  tasks:  10 * 60 * 1000,  // 10 min — tarefas raramente mudam
+  events:  2 * 60 * 1000,  //  2 min — eventos mudam com frequência
+};
 
 // ===== CONFIG =====
 
 export async function getGlobalConfig() {
+  const cached = cacheGet('config:global');
+  if (cached) return cached;
   const snap = await getDoc(doc(db, 'config', 'global'));
-  return snap.exists() ? snap.data() : getDefaultConfig();
+  const data = snap.exists() ? snap.data() : getDefaultConfig();
+  cacheSet('config:global', data, TTL.config);
+  return data;
 }
 
 export async function setGlobalConfig(data) {
   await setDoc(doc(db, 'config', 'global'), data, { merge: true });
+  cacheDel('config:global');
 }
 
 function getDefaultConfig() {
@@ -31,94 +44,103 @@ function getDefaultConfig() {
 // ===== TASKS =====
 
 export async function getTasks() {
+  const cached = cacheGet('tasks');
+  if (cached) return cached;
   const snap = await getDocs(collection(db, 'config', 'tasks', 'items'));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  cacheSet('tasks', data, TTL.tasks);
+  return data;
 }
 
 export async function setTask(taskId, data) {
   await setDoc(doc(db, 'config', 'tasks', 'items', taskId), data, { merge: true });
+  cacheDel('tasks');
 }
 
 // ===== UNITS =====
 
 export async function getUnit(unitId) {
+  const key = `unit:${unitId}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
   const snap = await getDoc(doc(db, 'units', unitId));
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  const data = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  if (data) cacheSet(key, data, TTL.unit);
+  return data;
 }
 
 export async function getAllUnits() {
+  const cached = cacheGet('units:all');
+  if (cached) return cached;
   const snap = await getDocs(collection(db, 'units'));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  cacheSet('units:all', data, TTL.unit);
+  return data;
 }
 
 export async function updateUnitStockists(unitId, stockists) {
   await updateDoc(doc(db, 'units', unitId), { stockists });
+  cacheDel(`unit:${unitId}`);
+  cacheDel('units:all');
 }
 
 export async function setUnit(unitId, data) {
   await setDoc(doc(db, 'units', unitId), data, { merge: true });
+  cacheDel(`unit:${unitId}`);
+  cacheDel('units:all');
 }
 
 // ===== EVENTS =====
 
 export async function createEvent(eventData) {
-  const payload = {
-    ...eventData,
-    createdAt: serverTimestamp(),
-  };
+  const payload = { ...eventData, createdAt: serverTimestamp() };
   const ref = await addDoc(collection(db, 'events'), payload);
+  // Invalida caches de eventos para que o próximo ranking/analytics leia dados frescos
+  cacheDelPrefix('events:');
   return ref.id;
 }
 
-/** Returns events for a unit in a date range */
+/**
+ * Busca eventos de uma unidade no período.
+ * O filtro de data é aplicado NO SERVIDOR para evitar ler documentos desnecessários.
+ * Cache de 2 min — suficiente para evitar releituras em navegação rápida.
+ */
 export async function getEvents({ unitId, stockistId, startDate, endDate, maxDocs = 200 }) {
-  let q = query(
-    collection(db, 'events'),
+  const cacheKey = `events:${unitId}:${startDate?.getTime() ?? 0}:${endDate?.getTime() ?? 0}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return stockistId ? cached.filter(e => e.stockistId === stockistId) : cached;
+
+  const constraints = [
     where('unitId', '==', unitId),
     orderBy('createdAt', 'desc'),
-    limit(maxDocs)
-  );
+  ];
+  if (startDate) constraints.push(where('createdAt', '>=', Timestamp.fromDate(startDate)));
+  if (endDate)   constraints.push(where('createdAt', '<=', Timestamp.fromDate(endDate)));
+  constraints.push(limit(maxDocs));
 
-  const snap = await getDocs(q);
-  let events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const snap = await getDocs(query(collection(db, 'events'), ...constraints));
+  const events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  cacheSet(cacheKey, events, TTL.events);
 
-  if (stockistId) events = events.filter(e => e.stockistId === stockistId);
-
-  if (startDate) {
-    events = events.filter(e => {
-      const ts = e.createdAt?.toDate?.() ?? new Date(e.createdAt);
-      return ts >= startDate;
-    });
-  }
-  if (endDate) {
-    events = events.filter(e => {
-      const ts = e.createdAt?.toDate?.() ?? new Date(e.createdAt);
-      return ts <= endDate;
-    });
-  }
-
-  return events;
+  return stockistId ? events.filter(e => e.stockistId === stockistId) : events;
 }
 
-/** All events for admin (both units) */
+/**
+ * Todos os eventos (admin) com filtro de data no servidor.
+ */
 export async function getAllEvents({ startDate, endDate, maxDocs = 500 } = {}) {
-  const q = query(collection(db, 'events'), orderBy('createdAt', 'desc'), limit(maxDocs));
-  const snap = await getDocs(q);
-  let events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const cacheKey = `events:all:${startDate?.getTime() ?? 0}:${endDate?.getTime() ?? 0}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
 
-  if (startDate) {
-    events = events.filter(e => {
-      const ts = e.createdAt?.toDate?.() ?? new Date(e.createdAt);
-      return ts >= startDate;
-    });
-  }
-  if (endDate) {
-    events = events.filter(e => {
-      const ts = e.createdAt?.toDate?.() ?? new Date(e.createdAt);
-      return ts <= endDate;
-    });
-  }
+  const constraints = [orderBy('createdAt', 'desc')];
+  if (startDate) constraints.push(where('createdAt', '>=', Timestamp.fromDate(startDate)));
+  if (endDate)   constraints.push(where('createdAt', '<=', Timestamp.fromDate(endDate)));
+  constraints.push(limit(maxDocs));
 
+  const snap = await getDocs(query(collection(db, 'events'), ...constraints));
+  const events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  cacheSet(cacheKey, events, TTL.events);
   return events;
 }
 
@@ -154,13 +176,13 @@ export function computeRanking(events) {
     const b = ev.batch;
     if (b && ['BATCH', 'ONLY_SEPARATION', 'ONLY_BIPPER'].includes(ev.type)) {
       s.batches++;
-      s.orders   += b.totalOrders || 0;
+      s.orders    += b.totalOrders || 0;
       s.totalSecs += (b.separationSeconds || 0) + (b.bippingSeconds || 0);
       if (ev.type === 'BATCH' || ev.type === 'ONLY_BIPPER') s.items += b.totalItems || 0;
     }
     if (ev.type === 'SINGLE_ORDER') {
       s.orders++;
-      s.items  += ev.batch?.totalItems || 1;
+      s.items     += ev.batch?.totalItems || 1;
       s.totalSecs += (ev.batch?.separationSeconds || 0) + (ev.batch?.bippingSeconds || 0);
     }
   }
@@ -203,8 +225,7 @@ export function getPendingEvents() {
 
 export async function flushPendingEvents() {
   const queue = getPendingEvents();
-  if (queue.length === 0) return;
-
+  if (queue.length === 0) return 0;
   const remaining = [];
   for (const ev of queue) {
     try {
@@ -219,26 +240,21 @@ export async function flushPendingEvents() {
 }
 
 /**
- * Listener em tempo real para o telão de ranking.
- * Retorna a função de unsubscribe — chame-a ao sair da tela.
- * Cobra apenas 1 read por novo documento adicionado (delta, não releitura total).
+ * Listener em tempo real para o telão.
+ * Filtro de data aplicado NO SERVIDOR — só lê documentos do período pedido.
+ * Cada novo evento dispara 1 leitura incremental (delta), não releitura total.
  */
 export function watchEvents({ unitId, startDate }, callback) {
-  const q = query(
-    collection(db, 'events'),
+  const constraints = [
     where('unitId', '==', unitId),
     orderBy('createdAt', 'desc'),
-    limit(500)
-  );
+  ];
+  if (startDate) constraints.push(where('createdAt', '>=', Timestamp.fromDate(startDate)));
+  constraints.push(limit(300));
 
+  const q = query(collection(db, 'events'), ...constraints);
   return onSnapshot(q, (snap) => {
-    let events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (startDate) {
-      events = events.filter(e => {
-        const ts = e.createdAt?.toDate?.() ?? new Date(e.createdAt);
-        return ts >= startDate;
-      });
-    }
+    const events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     callback(events);
   });
 }
