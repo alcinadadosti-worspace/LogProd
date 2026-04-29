@@ -10,6 +10,7 @@ import { renderSingleOrder }    from './screens/single-order.js';
 import { renderTask }           from './screens/task.js';
 import { renderAdminPanel }     from './screens/admin-panel.js';
 import { renderRankingDisplay } from './screens/ranking-display.js';
+import { renderAnalytics }      from './screens/analytics.js';
 
 import { onAuthChange, waitForAuth, getSessionContext } from './auth.js';
 import { initRouter, registerRoute, navigate } from './router.js';
@@ -27,6 +28,7 @@ const screens = {
   task:                renderTask,
   admin:               renderAdminPanel,
   tela:                renderRankingDisplay,
+  analytics:           renderAnalytics,
 };
 
 function showLoading(on) {

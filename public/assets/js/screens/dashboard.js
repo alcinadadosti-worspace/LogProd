@@ -85,6 +85,7 @@ function renderTopbar(slot, ctx) {
       </div>
       <div class="topbar-unit">${ctx.unitName}</div>
       <div class="topbar-actions">
+        <a href="#/analytics" class="btn btn--sm btn--secondary cyber-chamfer-sm">📊 ANALYTICS</a>
         ${ctx.mode === 'admin' ? `<a href="#/admin" class="btn btn--sm btn--secondary cyber-chamfer-sm">CONFIG</a>` : ''}
         <button id="disconnect-btn" class="btn btn--sm btn--danger cyber-chamfer-sm">DISCONNECT</button>
       </div>
