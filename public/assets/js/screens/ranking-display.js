@@ -2,6 +2,7 @@ import { getCurrentUser, waitForAuth, getSessionContext } from '../auth.js';
 import { navigate } from '../router.js';
 import { getUnit, getAllUnits, watchEvents, computeRanking, dateRangeForPeriod } from '../services/firestore.js';
 import { playRankUp, playTick, isMuted, toggleMute } from '../services/sound-engine.js';
+import { stockistPhoto } from '../services/photos.js';
 
 export async function renderRankingDisplay(container, params) {
   // waitForAuth() aguarda o Firebase restaurar a sessão do localStorage antes de verificar
@@ -106,6 +107,32 @@ export async function renderRankingDisplay(container, params) {
       .tela-pos.silver { color: #c0c0c0; text-shadow: 0 0 10px #c0c0c060; }
       .tela-pos.bronze { color: #cd7f32; text-shadow: 0 0 10px #cd7f3260; }
       .tela-pos.rest   { color: var(--muted-fg); }
+      .tela-avatar {
+        width: clamp(36px, 5vw, 56px);
+        height: clamp(36px, 5vw, 56px);
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid var(--border);
+        flex-shrink: 0;
+      }
+      .rank-1 .tela-avatar { border-color: #ffdd00; box-shadow: 0 0 10px #ffdd0060; }
+      .rank-2 .tela-avatar { border-color: #c0c0c0; }
+      .rank-3 .tela-avatar { border-color: #cd7f32; }
+      .tela-avatar-fallback {
+        width: clamp(36px, 5vw, 56px);
+        height: clamp(36px, 5vw, 56px);
+        border-radius: 50%;
+        background: var(--muted);
+        border: 2px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-display);
+        font-weight: 900;
+        font-size: clamp(0.9rem, 2vw, 1.4rem);
+        color: var(--accent);
+        flex-shrink: 0;
+      }
       .tela-name {
         flex: 1;
         font-family: var(--font-display);
@@ -286,12 +313,19 @@ export async function renderRankingDisplay(container, params) {
 
     rankingEl.innerHTML = ranking.slice(0, 10).map((r, i) => {
       const name   = stockistMap[r.stockistId] || r.stockistId;
+      const photo  = stockistPhoto(name);
       const pct    = Math.round((r.xp / maxXp) * 100);
       const posLbl = posLabels[i] || 'rest';
       const rowCls = rowClasses[i] || '';
+      const avatarHtml = photo
+        ? `<img src="${photo}" alt="${name}" class="tela-avatar"
+                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+           <div class="tela-avatar-fallback" style="display:none;">${name.charAt(0)}</div>`
+        : `<div class="tela-avatar-fallback">${name.charAt(0)}</div>`;
       return `
         <div class="tela-row ${rowCls}">
           <div class="tela-pos ${posLbl}">#${i + 1}</div>
+          ${avatarHtml}
           <div class="tela-name" style="${i === 0 ? 'color:var(--accent);text-shadow:var(--neon);' : ''}">${name}</div>
           <div class="tela-bar-wrap cyber-chamfer-sm">
             <div class="tela-bar" style="width:0%" data-pct="${pct}"></div>

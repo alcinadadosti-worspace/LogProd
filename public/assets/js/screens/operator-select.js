@@ -1,4 +1,5 @@
 import { getUnit } from '../services/firestore.js';
+import { stockistPhoto } from '../services/photos.js';
 
 /**
  * Renders an operator selection modal over the current page.
@@ -26,11 +27,21 @@ export function selectOperator(unitId) {
           <div class="operator-grid" id="op-grid">
             ${stockists.length === 0
               ? '<div class="text-muted text-sm">Nenhum estoquista ativo nesta unidade.</div>'
-              : stockists.map(s => `
-                  <button class="operator-btn cyber-chamfer-sm" data-id="${s.id}" data-name="${s.name}">
-                    ${s.name}
-                  </button>
-                `).join('')
+              : stockists.map(s => {
+                  const photo = stockistPhoto(s.name);
+                  return `
+                    <button class="operator-btn cyber-chamfer-sm" data-id="${s.id}" data-name="${s.name}">
+                      <div class="operator-avatar-wrap">
+                        ${photo
+                          ? `<img src="${photo}" alt="${s.name}" class="operator-avatar" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                             <div class="operator-avatar-fallback" style="display:none;">${s.name.charAt(0)}</div>`
+                          : `<div class="operator-avatar-fallback">${s.name.charAt(0)}</div>`
+                        }
+                      </div>
+                      <span class="operator-btn-name">${s.name}</span>
+                    </button>
+                  `;
+                }).join('')
             }
           </div>
         </div>
