@@ -62,11 +62,7 @@ export function getCurrentUser() {
   return auth.currentUser;
 }
 
-export function waitForAuth() {
-  return new Promise(resolve => {
-    const unsub = onAuthStateChanged(auth, user => {
-      unsub();
-      resolve(user);
-    });
-  });
+export async function waitForAuth() {
+  await auth.authStateReady();
+  return auth.currentUser;
 }

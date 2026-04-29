@@ -11,7 +11,7 @@ import { renderTask }           from './screens/task.js';
 import { renderAdminPanel }     from './screens/admin-panel.js';
 import { renderRankingDisplay } from './screens/ranking-display.js';
 
-import { onAuthChange, getSessionContext } from './auth.js';
+import { onAuthChange, waitForAuth, getSessionContext } from './auth.js';
 import { initRouter, registerRoute, navigate } from './router.js';
 import { flushPendingEvents, getPendingEvents } from './services/firestore.js';
 
@@ -73,20 +73,28 @@ registerRoute('/404', (container) => {
   container.innerHTML = '<div class="page text-center mt-4"><h2 class="text-accent">404</h2><p class="text-muted">Rota não encontrada.</p><button class="btn mt-2" onclick="location.hash=\'/dashboard\'">DASHBOARD</button></div>';
 });
 
-// Boot
-onAuthChange(async (user) => {
+// Boot — aguarda o Firebase resolver o estado de autenticação antes de rotear.
+// onAuthChange dispara com null antes de restaurar a sessão do localStorage,
+// o que causava redirecionamento indevido para /login em novas abas (ex: telão).
+let routerStarted = false;
+
+async function boot() {
+  const user = await waitForAuth(); // authStateReady: estado definitivo garantido
+
   if (loadingBar) loadingBar.style.width = '100%';
   await new Promise(r => setTimeout(r, 400));
   showLoading(false);
 
+  const hash   = window.location.hash.slice(1);
+  const isTela = hash.startsWith('/tela');
+
   if (user) {
     showApp();
     const ctx = getSessionContext();
-    if (!ctx) {
+    if (!ctx && !isTela) {
       navigate('/pin');
-    } else {
-      const hash = window.location.hash.slice(1);
-      if (!hash || hash === '/') navigate('/dashboard');
+    } else if (!hash || hash === '/') {
+      navigate('/dashboard');
     }
     // Flush eventos pendentes
     const pending = getPendingEvents();
@@ -97,12 +105,21 @@ onAuthChange(async (user) => {
     }
   } else {
     showLanding();
-    if (window.location.hash && window.location.hash !== '#/' && !window.location.hash.includes('login')) {
+    if (!isTela && hash && hash !== '/' && !hash.includes('login')) {
       navigate('/login');
     }
   }
 
+  routerStarted = true;
   initRouter();
+}
+
+boot();
+
+// Observa mudanças de auth após o boot (ex: logout em outra aba)
+onAuthChange((user) => {
+  if (!routerStarted) return;
+  if (!user) { showLanding(); navigate('/login'); }
 });
 
 // Landing enter button
