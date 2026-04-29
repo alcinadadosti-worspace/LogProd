@@ -1,13 +1,15 @@
-import { getCurrentUser, getSessionContext } from '../auth.js';
+import { getCurrentUser, waitForAuth, getSessionContext } from '../auth.js';
 import { navigate } from '../router.js';
 import { getUnit, getAllUnits, watchEvents, computeRanking, dateRangeForPeriod } from '../services/firestore.js';
 import { playRankUp, playTick, isMuted, toggleMute } from '../services/sound-engine.js';
 
 export async function renderRankingDisplay(container, params) {
-  if (!getCurrentUser()) { navigate('/login'); return; }
+  // waitForAuth() aguarda o Firebase restaurar a sessão do localStorage antes de verificar
+  // getCurrentUser() síncrono retorna null em nova aba enquanto o SDK ainda não inicializou
+  const user = await waitForAuth();
+  if (!user) { navigate('/login'); return; }
 
-  // params.unit is always set when opening via dashboard link (even in a new tab).
-  // sessionStorage is tab-local, so skip ctx check when unit is in URL params.
+  // params.unit é sempre passado pelo dashboard; sessionStorage não persiste entre abas
   const unitId = params.unit || getSessionContext()?.unitId;
   if (!unitId) { navigate('/pin'); return; }
 

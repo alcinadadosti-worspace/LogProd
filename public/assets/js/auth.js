@@ -61,3 +61,12 @@ export function onAuthChange(cb) {
 export function getCurrentUser() {
   return auth.currentUser;
 }
+
+export function waitForAuth() {
+  return new Promise(resolve => {
+    const unsub = onAuthStateChanged(auth, user => {
+      unsub();
+      resolve(user);
+    });
+  });
+}
