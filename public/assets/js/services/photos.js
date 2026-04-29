@@ -3,7 +3,7 @@ const PHOTOS = {
   'Claudio':        '/perfis/Claudio.jpg',
   'Danrley':        '/perfis/Danrley.jpg',
   'Felipe Guedes':  '/perfis/Felipe Guedes.jpg',
-  'Hugo':           '/perfis/Hugo.png',
+  'Hugo Castro':    '/perfis/Hugo.png',
   'João Victor':    '/perfis/João Victor.jpg',
   'Luciano Torres': '/perfis/Luciano Torres.jpg',
   'Paulo Cesar':    '/perfis/Paulo Cesar.jpg',
