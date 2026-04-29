@@ -5,11 +5,14 @@ import { playRankUp, playTick, isMuted, toggleMute } from '../services/sound-eng
 
 export async function renderRankingDisplay(container, params) {
   if (!getCurrentUser()) { navigate('/login'); return; }
-  const ctx = getSessionContext();
-  if (!ctx) { navigate('/pin'); return; }
 
-  const isAdmin = ctx.mode === 'admin';
-  const unitId  = params.unit || ctx.unitId;
+  // params.unit is always set when opening via dashboard link (even in a new tab).
+  // sessionStorage is tab-local, so skip ctx check when unit is in URL params.
+  const unitId = params.unit || getSessionContext()?.unitId;
+  if (!unitId) { navigate('/pin'); return; }
+
+  const ctx = getSessionContext();
+  const isAdmin = ctx?.mode === 'admin';
 
   let unit;
   try {

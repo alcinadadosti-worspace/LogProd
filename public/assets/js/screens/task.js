@@ -52,7 +52,7 @@ function showQuantityStep(page, state) {
         </div>
 
         <div class="input-group mb-3">
-          <label class="input-label">QUANTAS UNIDADES?</label>
+          <label class="input-label">QUANTAS VEZES VOCÊ FEZ ESSA TAREFA HOJE?</label>
           <div class="input-wrapper">
             <span class="input-prefix">&gt;</span>
             <input id="qty-input" class="input" type="number" min="1" value="1"
