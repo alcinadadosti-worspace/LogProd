@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Config: leitura para autenticados, escrita para autenticados (PIN validado client-side).
+    // DÉBITO TÉCNICO: Em produção, escrita de config deve ser protegida por Custom Claim "admin".
+    match /config/{doc=**} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Units: leitura para autenticados, escrita para autenticados.
+    match /units/{unitId} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Events: leitura e criação para autenticados; update e delete proibidos (imutável).
+    match /events/{eventId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.unitId      is string
+                    && request.resource.data.stockistId  is string
+                    && request.resource.data.xp          is number
+                    && request.resource.data.xp          >= 0;
+      allow update, delete: if false;
+    }
+  }
+}

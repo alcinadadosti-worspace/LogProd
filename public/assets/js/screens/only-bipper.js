@@ -1,0 +1,304 @@
+import { getCurrentUser, getSessionContext } from '../auth.js';
+import { navigate } from '../router.js';
+import { selectOperator } from './operator-select.js';
+import { parseSpreadsheet } from '../services/spreadsheet-parser.js';
+import { createEvent, saveEventLocally, getGlobalConfig, findSeparationBatch } from '../services/firestore.js';
+import { xpBatch } from '../services/xp-engine.js';
+import { Chronometer } from '../components/chronometer.js';
+
+export async function renderOnlyBipper(container, params) {
+  if (!getCurrentUser()) { navigate('/login'); return; }
+  const ctx = getSessionContext();
+  if (!ctx) { navigate('/pin'); return; }
+  const unitId = params.unit || ctx.unitId;
+
+  container.innerHTML = `
+    <div class="topbar">
+      <button class="btn btn--ghost btn--sm" id="back-btn">← VOLTAR</button>
+      <div class="topbar-logo" style="font-size:0.8rem;">APENAS BIPADOR</div>
+      <div></div>
+    </div>
+    <div class="page screen-enter" id="bip-page"></div>
+  `;
+  container.querySelector('#back-btn').addEventListener('click', () => navigate('/dashboard'));
+
+  const page  = container.querySelector('#bip-page');
+  const state = { operator: null, orders: [], batchCode: '', bipSeconds: 0, boxCodes: {}, config: null };
+
+  state.config   = await getGlobalConfig();
+  state.operator = await selectOperator(unitId);
+  if (!state.operator) { navigate('/dashboard'); return; }
+
+  showBatchSearch(page, state, unitId);
+}
+
+function showBatchSearch(page, state, unitId) {
+  page.innerHTML = `
+    <div class="card cyber-chamfer" style="max-width:600px;">
+      <div class="section-title mb-2">LOCALIZAR LOTE SEPARADO</div>
+      <div class="text-muted text-xs mb-2" style="letter-spacing:0.1em;">
+        OPERADOR: <span class="text-accent">${state.operator.name}</span>
+      </div>
+
+      <div class="input-group mb-2">
+        <label class="input-label">CÓDIGO DO LOTE (8 DÍGITOS)</label>
+        <div class="input-wrapper">
+          <span class="input-prefix">&gt;</span>
+          <input id="batch-input" class="input" type="text" maxlength="8" placeholder="12345678">
+        </div>
+        <div class="input-error-msg" id="batch-err"></div>
+      </div>
+
+      <button id="search-btn" class="btn btn--full cyber-chamfer mb-3" disabled>
+        🔍 BUSCAR LOTE NO SISTEMA
+      </button>
+
+      <div id="search-result" style="display:none;">
+        <div id="found-info" class="text-accent text-sm mb-2"></div>
+        <button id="use-found" class="btn btn--full cyber-chamfer mb-2" style="display:none;">
+          USAR ESTE LOTE → INICIAR BIPAGEM
+        </button>
+      </div>
+
+      <details style="margin-top:1rem;">
+        <summary class="text-muted text-xs" style="cursor:pointer;letter-spacing:0.15em;">
+          LOTE NÃO ENCONTRADO? IMPORTAR PLANILHA MANUALMENTE
+        </summary>
+        <div style="margin-top:1rem;">
+          <div class="file-upload-area cyber-chamfer mt-1" id="drop-area">
+            <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
+            <div class="file-upload-icon">📂</div>
+            <div class="file-upload-text">Arraste ou clique para selecionar a planilha</div>
+          </div>
+          <div id="file-status" class="text-xs text-muted mt-1"></div>
+          <div id="file-err" class="input-error-msg mt-1"></div>
+          <button id="manual-start" class="btn btn--secondary btn--full cyber-chamfer mt-2" disabled>
+            USAR PLANILHA → INICIAR BIPAGEM
+          </button>
+        </div>
+      </details>
+    </div>
+  `;
+
+  const batchInput  = page.querySelector('#batch-input');
+  const batchErr    = page.querySelector('#batch-err');
+  const searchBtn   = page.querySelector('#search-btn');
+  const searchRes   = page.querySelector('#search-result');
+  const foundInfo   = page.querySelector('#found-info');
+  const useFound    = page.querySelector('#use-found');
+  const fileInput   = page.querySelector('#file-input');
+  const dropArea    = page.querySelector('#drop-area');
+  const fileStatus  = page.querySelector('#file-status');
+  const fileErr     = page.querySelector('#file-err');
+  const manualStart = page.querySelector('#manual-start');
+
+  let manualOrders = [];
+
+  batchInput.addEventListener('input', () => {
+    const v = batchInput.value.trim();
+    batchErr.textContent = v && !/^\d{8}$/.test(v) ? '> DEVE TER 8 DÍGITOS' : '';
+    searchBtn.disabled   = !/^\d{8}$/.test(v);
+    searchRes.style.display = 'none';
+    useFound.style.display  = 'none';
+    checkManual();
+  });
+
+  searchBtn.addEventListener('click', async () => {
+    const bc = batchInput.value.trim();
+    searchBtn.disabled   = true;
+    searchBtn.textContent = 'BUSCANDO...';
+    searchRes.style.display = 'block';
+    foundInfo.textContent = '';
+    useFound.style.display = 'none';
+
+    try {
+      const ev = await findSeparationBatch(unitId, bc);
+      if (ev) {
+        const orders = ev.batch?.orders || [];
+        foundInfo.innerHTML = `
+          ✓ Lote <span class="text-accent">${bc}</span> encontrado —
+          ${orders.length} pedidos, ${ev.batch?.totalItems} itens
+        `;
+        state.batchCode = bc;
+        state.orders    = orders.map(o => ({ code: o.code, cycle: o.cycle, items: o.items, approvedAt: o.approvedAt ? new Date(o.approvedAt) : null }));
+        useFound.style.display = 'block';
+      } else {
+        foundInfo.innerHTML = `<span class="text-destructive">✗ Lote ${bc} não encontrado como separação salva.</span>`;
+      }
+    } catch {
+      foundInfo.textContent = '> Erro na busca.';
+    }
+
+    searchBtn.disabled    = false;
+    searchBtn.textContent = '🔍 BUSCAR LOTE NO SISTEMA';
+  });
+
+  useFound.addEventListener('click', () => showBippingChrono(page, state, unitId));
+
+  async function handleFile(file) {
+    try {
+      const { orders, skipped } = await parseSpreadsheet(file);
+      manualOrders = orders;
+      fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>.${skipped ? ' ' + skipped + ' ignorados.' : ''}`;
+      checkManual();
+    } catch (err) { fileErr.textContent = '> ERRO: ' + err.message; }
+  }
+
+  function checkManual() {
+    const bc = batchInput.value.trim();
+    manualStart.disabled = manualOrders.length === 0 || !/^\d{8}$/.test(bc);
+  }
+
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+  dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
+  dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
+  dropArea.addEventListener('drop', e => { e.preventDefault(); dropArea.classList.remove('drag-over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+  manualStart.addEventListener('click', () => {
+    state.batchCode = batchInput.value.trim();
+    state.orders    = manualOrders;
+    showBippingChrono(page, state, unitId);
+  });
+}
+
+function showBippingChrono(page, state, unitId) {
+  const lockedMap = {};
+  const chrono = new Chronometer(sec => {
+    const el = page.querySelector('#chrono-bip');
+    if (el) el.textContent = Chronometer.format(sec);
+  });
+
+  page.innerHTML = `
+    <div style="max-width:700px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+        <div>
+          <div class="section-title">BIPAGEM / LACRAÇÃO</div>
+          <div class="text-muted text-xs cursor" style="letter-spacing:0.15em;">LOTE ${state.batchCode}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="chrono-label">TEMPO DE BIPAGEM</div>
+          <div class="chrono-display" id="chrono-bip" style="font-size:2rem;">00:00:00</div>
+        </div>
+      </div>
+
+      <div class="card cyber-chamfer" style="padding:0;margin-bottom:1rem;">
+        <div style="padding:0.5rem 1rem;border-bottom:1px solid var(--border);display:flex;
+                    justify-content:space-between;font-size:0.65rem;font-family:var(--font-terminal);
+                    color:var(--muted-fg);letter-spacing:0.15em;">
+          <span>PEDIDO</span><span>CICLO</span><span>ITENS</span>
+          <span>CÓD. CAIXA (10 DIG.)</span><span>STATUS</span>
+        </div>
+        <div id="bip-list">
+          ${state.orders.map(o => `
+            <div class="order-item" id="row-${o.code}">
+              <span class="order-code">${o.code}</span>
+              <span class="order-cycle">${o.cycle}</span>
+              <span class="order-items">${o.items}</span>
+              <input type="text" class="order-box-input" maxlength="10"
+                     placeholder="0000000000" data-order="${o.code}" inputmode="numeric">
+              <span class="order-status pending" id="status-${o.code}">PENDENTE</span>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+        <div class="text-sm">Lacrados: <span id="lock-count" class="text-accent">0</span>/${state.orders.length}</div>
+        <div class="progress-bar-wrap" style="flex:1;"><div class="progress-bar" id="lock-progress" style="width:0%"></div></div>
+      </div>
+
+      <button id="finish-bip" class="btn btn--full cyber-chamfer" disabled style="padding:1rem;">
+        ■ FINALIZAR LOTE
+      </button>
+    </div>
+  `;
+
+  const bipStart = new Date();
+  chrono.start();
+
+  function updateProgress() {
+    const count = Object.keys(lockedMap).length;
+    page.querySelector('#lock-count').textContent        = count;
+    page.querySelector('#lock-progress').style.width     = Math.round((count / state.orders.length) * 100) + '%';
+    page.querySelector('#finish-bip').disabled           = count < state.orders.length;
+  }
+
+  page.querySelector('#bip-list').addEventListener('input', e => {
+    const inp = e.target;
+    if (!inp.classList.contains('order-box-input')) return;
+    const code = inp.dataset.order;
+    inp.value  = inp.value.replace(/\D/g, '');
+    if (/^\d{10}$/.test(inp.value)) {
+      lockedMap[code] = inp.value;
+      inp.classList.add('validated');
+      page.querySelector(`#status-${code}`).textContent = '✓ LACRADO';
+      page.querySelector(`#status-${code}`).className   = 'order-status locked';
+      const next = [...page.querySelectorAll('.order-box-input:not(.validated)')];
+      if (next[0]) next[0].focus();
+    } else if (lockedMap[code]) {
+      delete lockedMap[code];
+      inp.classList.remove('validated');
+      page.querySelector(`#status-${code}`).textContent = 'PENDENTE';
+      page.querySelector(`#status-${code}`).className   = 'order-status pending';
+    }
+    updateProgress();
+  });
+
+  page.querySelector('#finish-bip').addEventListener('click', async () => {
+    chrono.stop();
+    state.bipSeconds = chrono.getSeconds();
+    state.bipStart   = bipStart;
+    state.bipEnd     = new Date();
+    state.boxCodes   = { ...lockedMap };
+    await save(page, state, unitId);
+  });
+
+  return () => chrono.stop();
+}
+
+async function save(page, state, unitId) {
+  page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
+
+  const totalItems = state.orders.reduce((s, o) => s + (o.items || 0), 0);
+  const xpResult   = xpBatch({ orders: state.orders.length, items: totalItems, seconds: state.bipSeconds, config: state.config });
+
+  const eventData = {
+    unitId, stockistId: state.operator.id,
+    type: 'ONLY_BIPPING', xp: xpResult.total,
+    batch: {
+      batchCode: state.batchCode,
+      orders: state.orders.map(o => ({ code: o.code, cycle: o.cycle || '', approvedAt: o.approvedAt?.toISOString?.() ?? null, items: o.items })),
+      totalOrders: state.orders.length, totalItems,
+      separationSeconds: null, separationStartedAt: null, separationFinishedAt: null,
+      bippingStartedAt: state.bipStart.toISOString(),
+      bippingFinishedAt: state.bipEnd.toISOString(),
+      bippingSeconds: state.bipSeconds,
+      boxCodes: state.boxCodes,
+    },
+  };
+
+  try { await createEvent(eventData); }
+  catch { saveEventLocally(eventData); document.getElementById('sync-banner')?.classList.add('visible'); }
+
+  const xpEl = (() => {
+    page.innerHTML = `
+      <div style="max-width:500px;margin:0 auto;">
+        <div class="xp-summary cyber-chamfer-lg fade-in">
+          <div class="xp-label">XP GANHO — BIPAGEM</div>
+          <span class="xp-value" id="xp-count">0</span>
+          ${xpResult.bonusPct > 0 ? `<div class="xp-bonus-tag">+${(xpResult.bonusPct*100).toFixed(0)}% BÔNUS</div>` : ''}
+        </div>
+        <div class="card cyber-chamfer mt-2">
+          <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
+          <div class="stat-row"><span class="stat-label">PEDIDOS</span><span class="stat-value">${state.orders.length}</span></div>
+          <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value">${totalItems}</span></div>
+          <div class="stat-row"><span class="stat-label">TEMPO BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>
+          <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} itens/min</span></div>
+        </div>
+        <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+      </div>`;
+    return page.querySelector('#xp-count');
+  })();
+
+  let cur = 0; const target = xpResult.total; const step = Math.ceil(target / 60);
+  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) clearInterval(t); }, 25);
+}

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ALCINA // PROD.OPS</title>
+  <meta name="description" content="Sistema de produtividade para estoquistas — Grupo Alcina Maria">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;800;900&family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/assets/css/tokens.css">
+  <link rel="stylesheet" href="/assets/css/base.css">
+  <link rel="stylesheet" href="/assets/css/components.css">
+  <link rel="stylesheet" href="/assets/css/animations.css">
+
+  <!-- External libraries (CDN) -->
+  <!-- SheetJS -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* Hero landing (pre-login) */
+    #landing {
+      display: none;
+      min-height: 100vh;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 1.5rem;
+      padding: 2rem;
+    }
+    #landing.visible { display: flex; }
+    .hero-title {
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 8vw, 5rem);
+      font-weight: 900;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      line-height: 1;
+      color: var(--accent);
+      text-shadow: var(--neon-lg);
+      position: relative;
+    }
+    .hero-sub {
+      font-family: var(--font-terminal);
+      font-size: 0.85rem;
+      color: var(--muted-fg);
+      letter-spacing: 0.4em;
+      text-transform: uppercase;
+    }
+    .hero-divider {
+      width: 100px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      box-shadow: var(--neon);
+    }
+    .hero-enter-btn {
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      letter-spacing: 0.3em;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      background: transparent;
+      padding: 0.75rem 2rem;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 200ms;
+      animation: neon-pulse 2s ease-in-out infinite;
+    }
+    .hero-enter-btn:hover {
+      background: var(--accent);
+      color: var(--bg);
+      box-shadow: var(--neon-lg);
+    }
+    .hero-status {
+      display: flex;
+      gap: 1.5rem;
+      font-size: 0.65rem;
+      font-family: var(--font-terminal);
+      color: var(--muted-fg);
+    }
+    .hero-status-item::before { content: "● "; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <!-- Scanline moving bar -->
+  <div class="scanline-bar"></div>
+
+  <!-- Sync banner -->
+  <div id="sync-banner">⚠ PENDING SYNC — dados locais aguardando envio ao servidor</div>
+
+  <!-- Hero Landing -->
+  <div id="landing">
+    <div class="hero-title glitch chroma-text" data-text="ALCINA // PROD.OPS">ALCINA // PROD.OPS</div>
+    <div class="hero-sub">Sistema de Produtividade de Estoquistas</div>
+    <div class="hero-divider"></div>
+    <div class="hero-status">
+      <span class="hero-status-item">Vd Penedo</span>
+      <span class="hero-status-item">Vd Palmeira</span>
+      <span class="hero-status-item">O Boticário</span>
+    </div>
+    <button class="hero-enter-btn cyber-chamfer cursor" id="landing-enter-btn">
+      INICIAR SESSÃO
+    </button>
+    <div class="text-xs text-muted">SISTEMA RESTRITO — APENAS OPERADORES AUTORIZADOS</div>
+  </div>
+
+  <!-- App container (SPA) -->
+  <div id="app" style="display:none;"></div>
+
+  <!-- Loading screen -->
+  <div id="loading-screen">
+    <div style="font-family:'Orbitron',monospace;font-size:2rem;font-weight:800;color:var(--accent);text-shadow:var(--neon-lg);letter-spacing:0.2em;">
+      ALCINA
+    </div>
+    <div class="loading-text cursor">INICIALIZANDO SISTEMA</div>
+    <div style="width:200px;height:2px;background:var(--muted);margin-top:0.5rem;overflow:hidden;">
+      <div id="loading-bar" style="height:100%;background:var(--accent);box-shadow:var(--neon);width:0;transition:width 2s ease;"></div>
+    </div>
+  </div>
+
+  <!-- Main app script -->
+  <script type="module" src="/assets/js/main.js"></script>
+</body>
+</html>
