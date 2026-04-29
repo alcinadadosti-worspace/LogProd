@@ -136,15 +136,37 @@ export async function findSeparationBatch(unitId, batchCode) {
   return match ? { id: match.id, ...match.data() } : null;
 }
 
-/** Aggregate XP per stockist for ranking */
+/** Aggregate XP + stats per stockist for ranking */
 export function computeRanking(events) {
   const map = {};
   for (const ev of events) {
-    if (!map[ev.stockistId]) map[ev.stockistId] = { stockistId: ev.stockistId, xp: 0, events: 0 };
-    map[ev.stockistId].xp += ev.xp || 0;
-    map[ev.stockistId].events++;
+    if (!map[ev.stockistId]) {
+      map[ev.stockistId] = {
+        stockistId: ev.stockistId,
+        xp: 0, events: 0,
+        items: 0, orders: 0, batches: 0, totalSecs: 0,
+      };
+    }
+    const s = map[ev.stockistId];
+    s.xp += ev.xp || 0;
+    s.events++;
+
+    const b = ev.batch;
+    if (b && ['BATCH', 'ONLY_SEPARATION', 'ONLY_BIPPER'].includes(ev.type)) {
+      s.batches++;
+      s.orders   += b.totalOrders || 0;
+      s.totalSecs += (b.separationSeconds || 0) + (b.bippingSeconds || 0);
+      if (ev.type === 'BATCH' || ev.type === 'ONLY_BIPPER') s.items += b.totalItems || 0;
+    }
+    if (ev.type === 'SINGLE_ORDER') {
+      s.orders++;
+      s.items  += ev.batch?.totalItems || 1;
+      s.totalSecs += (ev.batch?.separationSeconds || 0) + (ev.batch?.bippingSeconds || 0);
+    }
   }
-  return Object.values(map).sort((a, b) => b.xp - a.xp);
+  return Object.values(map)
+    .map(s => ({ ...s, avgSecs: s.batches > 0 ? Math.round(s.totalSecs / s.batches) : 0 }))
+    .sort((a, b) => b.xp - a.xp);
 }
 
 /** Date range helpers */

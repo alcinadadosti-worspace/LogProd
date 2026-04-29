@@ -133,22 +133,40 @@ export async function renderRankingDisplay(container, params) {
         color: var(--accent);
         flex-shrink: 0;
       }
-      .tela-name {
+      .tela-info {
         flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        min-width: 0;
+      }
+      .tela-name {
         font-family: var(--font-display);
         font-weight: 700;
-        font-size: clamp(1rem, 2.8vw, 2rem);
+        font-size: clamp(0.9rem, 2.4vw, 1.7rem);
         letter-spacing: 0.05em;
         text-transform: uppercase;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .tela-stats {
+        display: flex;
+        gap: clamp(0.5rem, 1.5vw, 1.5rem);
+        font-family: var(--font-terminal);
+        font-size: clamp(0.55rem, 1.1vw, 0.8rem);
+        color: var(--muted-fg);
+        letter-spacing: 0.1em;
+        flex-wrap: wrap;
+      }
+      .tela-stat { white-space: nowrap; }
+      .tela-stat span { color: var(--fg); font-weight: 700; }
       .tela-bar-wrap {
-        flex: 2;
-        height: 8px;
+        flex: 1.5;
+        height: 6px;
         background: var(--muted);
         overflow: hidden;
+        align-self: center;
       }
       .tela-bar {
         height: 100%;
@@ -161,10 +179,10 @@ export async function renderRankingDisplay(container, params) {
       .tela-xp {
         font-family: var(--font-display);
         font-weight: 800;
-        font-size: clamp(1rem, 2.8vw, 2rem);
+        font-size: clamp(0.9rem, 2.4vw, 1.7rem);
         color: var(--accent);
         text-shadow: var(--neon);
-        min-width: 10rem;
+        min-width: 8rem;
         text-align: right;
         white-space: nowrap;
         flex-shrink: 0;
@@ -276,6 +294,11 @@ export async function renderRankingDisplay(container, params) {
     });
   });
 
+  function fmtSecs(s) {
+    const m = Math.floor(s / 60), sec = s % 60;
+    return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+
   function renderRanking(events) {
     const rankingEl    = container.querySelector('#tela-ranking');
     const eventsCount  = container.querySelector('#tela-events-count');
@@ -317,6 +340,8 @@ export async function renderRankingDisplay(container, params) {
       const pct    = Math.round((r.xp / maxXp) * 100);
       const posLbl = posLabels[i] || 'rest';
       const rowCls = rowClasses[i] || '';
+      const nameColor = i === 0 ? 'color:var(--accent);text-shadow:var(--neon);' : '';
+      const avgFmt = r.avgSecs > 0 ? fmtSecs(r.avgSecs) : '—';
       const avatarHtml = photo
         ? `<img src="${photo}" alt="${name}" class="tela-avatar"
                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
@@ -326,7 +351,15 @@ export async function renderRankingDisplay(container, params) {
         <div class="tela-row ${rowCls}">
           <div class="tela-pos ${posLbl}">#${i + 1}</div>
           ${avatarHtml}
-          <div class="tela-name" style="${i === 0 ? 'color:var(--accent);text-shadow:var(--neon);' : ''}">${name}</div>
+          <div class="tela-info">
+            <div class="tela-name" style="${nameColor}">${name}</div>
+            <div class="tela-stats">
+              <div class="tela-stat">📦 <span>${r.batches}</span> lotes</div>
+              <div class="tela-stat">📋 <span>${r.orders}</span> pedidos</div>
+              <div class="tela-stat">🔢 <span>${r.items.toLocaleString('pt-BR')}</span> itens bipados</div>
+              <div class="tela-stat">⏱ <span>${avgFmt}</span> tempo médio</div>
+            </div>
+          </div>
           <div class="tela-bar-wrap cyber-chamfer-sm">
             <div class="tela-bar" style="width:0%" data-pct="${pct}"></div>
           </div>
