@@ -58,7 +58,7 @@ export async function renderLogin(container) {
           </form>
 
           <div class="text-center mt-3 text-xs text-muted cursor">
-            GRUPO ALCINA MARIA // O BOTICÁRIO
+            LOGISTICA // PROD.OPS · O BOTICÁRIO
           </div>
         </div>
       </div>

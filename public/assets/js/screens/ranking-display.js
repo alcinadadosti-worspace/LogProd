@@ -255,21 +255,28 @@ export async function renderRankingDisplay(container, params) {
       </div>
 
       <div id="tela-footer">
-        <div class="tela-clock" id="tela-clock">--:--:--</div>
+        <div style="display:flex;flex-direction:column;gap:0.1rem;">
+          <div class="tela-clock" id="tela-clock">--:--:--</div>
+          <div class="tela-clock" id="tela-date" style="font-size:clamp(0.55rem,1.1vw,0.75rem);opacity:0.75;">--/--/----</div>
+        </div>
         <div class="tela-events-count" id="tela-events-count"></div>
         <div style="font-family:var(--font-terminal);font-size:0.6rem;color:var(--muted-fg);letter-spacing:0.15em;">
-          ALCINA // PROD.OPS
+          LOGISTICA // PROD.OPS
         </div>
       </div>
     </div>
   `;
 
-  // Clock
+  // Clock + date
   const clockEl = container.querySelector('#tela-clock');
-  const clockTimer = setInterval(() => {
-    clockEl.textContent = new Date().toLocaleTimeString('pt-BR');
-  }, 1000);
-  clockEl.textContent = new Date().toLocaleTimeString('pt-BR');
+  const dateEl  = container.querySelector('#tela-date');
+  function tickClock() {
+    const now = new Date();
+    clockEl.textContent = now.toLocaleTimeString('pt-BR');
+    dateEl.textContent  = now.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }).toUpperCase();
+  }
+  tickClock();
+  const clockTimer = setInterval(tickClock, 1000);
 
   // Fullscreen
   container.querySelector('#fullscreen-btn').addEventListener('click', () => {

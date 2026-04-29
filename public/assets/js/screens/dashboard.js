@@ -79,7 +79,7 @@ function renderTopbar(slot, ctx) {
       <div style="display:flex;align-items:center;gap:0.75rem;">
         ${adminAvatar}
         <div>
-          <div class="topbar-logo">ALCINA // PROD.OPS</div>
+          <div class="topbar-logo">LOGISTICA // PROD.OPS</div>
           ${ctx.mode === 'admin' ? `<div style="font-family:var(--font-terminal);font-size:0.6rem;color:var(--muted-fg);letter-spacing:0.15em;">ALBERTO · ADMINISTRADOR</div>` : ''}
         </div>
       </div>
@@ -120,7 +120,7 @@ async function loadUnitContent(el, unitId, tasks, isAdmin) {
       <div class="grid-4" id="sep-grid">
         ${renderActionCard('function-complete', '⚡', 'FUNÇÃO COMPLETA', 'Separa + Bipa + Lacra. Lote completo do início ao fim.')}
         ${renderActionCard('only-separator', '📦', 'APENAS SEPARADOR', 'Importa lote e realiza a separação dos itens.')}
-        ${renderActionCard('only-bipper', '🔫', 'APENAS BIPADOR', 'Bipa e lacra lotes já separados.')}
+        ${renderActionCard('only-bipper', '📡', 'APENAS BIPADOR', 'Bipa e lacra lotes já separados.')}
         ${renderActionCard('single-order', '📋', 'PEDIDO AVULSO', 'Processa um único pedido completo.')}
       </div>
     </div>

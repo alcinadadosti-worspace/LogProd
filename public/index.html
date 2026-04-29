@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ALCINA // PROD.OPS</title>
+  <title>LOGISTICA // PROD.OPS</title>
   <meta name="description" content="Sistema de produtividade para estoquistas — Grupo Alcina Maria">
 
   <!-- Google Fonts -->
@@ -38,20 +38,23 @@
     #landing.visible { display: flex; }
     .hero-title {
       font-family: var(--font-display);
-      font-size: clamp(2rem, 8vw, 5rem);
+      font-size: clamp(2.5rem, 10vw, 6rem);
       font-weight: 900;
-      letter-spacing: 0.15em;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
       line-height: 1;
       color: var(--accent);
-      text-shadow: var(--neon-lg);
+      text-shadow: 0 2px 0 rgba(5,150,105,0.3), var(--neon-lg);
       position: relative;
     }
     .hero-sub {
       font-family: var(--font-terminal);
-      font-size: 0.85rem;
-      color: var(--muted-fg);
-      letter-spacing: 0.4em;
+      font-size: clamp(0.75rem, 1.8vw, 1rem);
+      color: var(--fg);
+      background: rgba(255,255,255,0.7);
+      padding: 0.3rem 1rem;
+      border-radius: 2px;
+      letter-spacing: 0.3em;
       text-transform: uppercase;
     }
     .hero-divider {
@@ -97,7 +100,7 @@
 
   <!-- Hero Landing -->
   <div id="landing">
-    <div class="hero-title glitch chroma-text" data-text="ALCINA // PROD.OPS">ALCINA // PROD.OPS</div>
+    <div class="hero-title glitch chroma-text" data-text="LOGISTICA.OPS">LOGISTICA.OPS</div>
     <div class="hero-sub">Sistema de Produtividade de Estoquistas</div>
     <div class="hero-divider"></div>
     <div class="hero-status">
@@ -117,7 +120,7 @@
   <!-- Loading screen -->
   <div id="loading-screen">
     <div style="font-family:'Orbitron',monospace;font-size:2rem;font-weight:800;color:var(--accent);text-shadow:var(--neon-lg);letter-spacing:0.2em;">
-      ALCINA
+      LOGISTICA
     </div>
     <div class="loading-text cursor">INICIALIZANDO SISTEMA</div>
     <div style="width:200px;height:2px;background:var(--muted);margin-top:0.5rem;overflow:hidden;">
