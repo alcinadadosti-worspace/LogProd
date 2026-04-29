@@ -40,7 +40,7 @@ export async function renderRankingDisplay(container, params) {
         justify-content: space-between;
         padding: 1rem 2rem;
         border-bottom: 1px solid var(--border);
-        background: rgba(10,10,15,0.95);
+        background: rgba(255,255,255,0.95);
         flex-shrink: 0;
       }
       .tela-unit-name {
@@ -144,7 +144,7 @@ export async function renderRankingDisplay(container, params) {
         justify-content: space-between;
         padding: 0.6rem 2rem;
         border-top: 1px solid var(--border);
-        background: rgba(10,10,15,0.95);
+        background: rgba(255,255,255,0.95);
         flex-shrink: 0;
       }
       .tela-clock {

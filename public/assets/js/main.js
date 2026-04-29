@@ -1,19 +1,32 @@
+// Imports estáticos — evita falha de "Failed to fetch dynamically imported module"
+// em ambientes de hosting estático que fazem rewrite de SPA.
+import { renderLogin }          from './screens/login.js';
+import { renderUnitPin }        from './screens/unit-pin.js';
+import { renderDashboard }      from './screens/dashboard.js';
+import { renderFunctionComplete } from './screens/function-complete.js';
+import { renderOnlySeparator }  from './screens/only-separator.js';
+import { renderOnlyBipper }     from './screens/only-bipper.js';
+import { renderSingleOrder }    from './screens/single-order.js';
+import { renderTask }           from './screens/task.js';
+import { renderAdminPanel }     from './screens/admin-panel.js';
+import { renderRankingDisplay } from './screens/ranking-display.js';
+
 import { onAuthChange, getSessionContext } from './auth.js';
 import { initRouter, registerRoute, navigate } from './router.js';
 import { flushPendingEvents, getPendingEvents } from './services/firestore.js';
 
-// Lazy screen imports
+// Mapa de rotas
 const screens = {
-  login:             () => import('./screens/login.js').then(m => m.renderLogin),
-  pin:               () => import('./screens/unit-pin.js').then(m => m.renderUnitPin),
-  dashboard:         () => import('./screens/dashboard.js').then(m => m.renderDashboard),
-  'function-complete': () => import('./screens/function-complete.js').then(m => m.renderFunctionComplete),
-  'only-separator':  () => import('./screens/only-separator.js').then(m => m.renderOnlySeparator),
-  'only-bipper':     () => import('./screens/only-bipper.js').then(m => m.renderOnlyBipper),
-  'single-order':    () => import('./screens/single-order.js').then(m => m.renderSingleOrder),
-  task:              () => import('./screens/task.js').then(m => m.renderTask),
-  admin:             () => import('./screens/admin-panel.js').then(m => m.renderAdminPanel),
-  tela:              () => import('./screens/ranking-display.js').then(m => m.renderRankingDisplay),
+  login:               renderLogin,
+  pin:                 renderUnitPin,
+  dashboard:           renderDashboard,
+  'function-complete': renderFunctionComplete,
+  'only-separator':    renderOnlySeparator,
+  'only-bipper':       renderOnlyBipper,
+  'single-order':      renderSingleOrder,
+  task:                renderTask,
+  admin:               renderAdminPanel,
+  tela:                renderRankingDisplay,
 };
 
 function showLoading(on) {
@@ -39,22 +52,17 @@ function showLanding() {
   document.getElementById('app').style.display = 'none';
 }
 
-// Animate loading bar
+// Animar barra de loading
 const loadingBar = document.getElementById('loading-bar');
-if (loadingBar) {
-  setTimeout(() => { loadingBar.style.width = '70%'; }, 100);
-}
+if (loadingBar) setTimeout(() => { loadingBar.style.width = '70%'; }, 100);
 
-// Register all routes
-Object.entries(screens).forEach(([path, loader]) => {
-  registerRoute('/' + path, async (container, params) => {
-    const render = await loader();
-    return render(container, params);
-  });
+// Registrar todas as rotas
+Object.entries(screens).forEach(([path, render]) => {
+  registerRoute('/' + path, (container, params) => render(container, params));
 });
 
-// Default route
-registerRoute('/', (container) => {
+// Rota padrão
+registerRoute('/', () => {
   const ctx = getSessionContext();
   if (ctx) navigate('/dashboard');
   else navigate('/login');
@@ -80,7 +88,7 @@ onAuthChange(async (user) => {
       const hash = window.location.hash.slice(1);
       if (!hash || hash === '/') navigate('/dashboard');
     }
-    // Check pending sync
+    // Flush eventos pendentes
     const pending = getPendingEvents();
     if (pending.length > 0) {
       document.getElementById('sync-banner')?.classList.add('visible');
