@@ -13,6 +13,7 @@ const screens = {
   'single-order':    () => import('./screens/single-order.js').then(m => m.renderSingleOrder),
   task:              () => import('./screens/task.js').then(m => m.renderTask),
   admin:             () => import('./screens/admin-panel.js').then(m => m.renderAdminPanel),
+  tela:              () => import('./screens/ranking-display.js').then(m => m.renderRankingDisplay),
 };
 
 function showLoading(on) {

@@ -5,6 +5,7 @@ import { parseSpreadsheet, formatDate } from '../services/spreadsheet-parser.js'
 import { createEvent, saveEventLocally, getGlobalConfig } from '../services/firestore.js';
 import { xpBatch } from '../services/xp-engine.js';
 import { Chronometer } from '../components/chronometer.js';
+import { playStart, playComplete, playXP } from '../services/sound-engine.js';
 
 export async function renderOnlySeparator(container, params) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -170,6 +171,7 @@ function showChrono(page, state, unitId) {
   `;
 
   chrono.start();
+  playStart();
   const startedAt = new Date();
 
   page.querySelector('#finish-btn').addEventListener('click', async () => {
@@ -228,7 +230,8 @@ function showSummary(page, state, xpResult) {
       <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
     </div>
   `;
+  playComplete();
   const xpEl = page.querySelector('#xp-count');
   let cur = 0; const target = xpResult.total; const step = Math.ceil(target / 60);
-  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) clearInterval(t); }, 25);
+  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) { clearInterval(t); playXP(); } }, 25);
 }

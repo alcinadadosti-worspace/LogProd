@@ -5,6 +5,7 @@ import { parseSpreadsheet, formatDate } from '../services/spreadsheet-parser.js'
 import { createEvent, saveEventLocally, getGlobalConfig } from '../services/firestore.js';
 import { xpBatch } from '../services/xp-engine.js';
 import { Chronometer } from '../components/chronometer.js';
+import { playStart, playConfirm, playComplete, playXP } from '../services/sound-engine.js';
 
 export async function renderFunctionComplete(container, params) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -210,6 +211,7 @@ function showStep3Sep(page, state, unitId) {
   `;
 
   chrono.start();
+  playStart();
   const startedAt = new Date();
 
   page.querySelector('#finish-sep').addEventListener('click', () => {
@@ -352,6 +354,7 @@ function showStep5Bip(page, state, unitId) {
 
   const bipStart = new Date();
   chrono.start();
+  playStart();
 
   function updateProgress() {
     const count = Object.keys(lockedMap).length;
@@ -371,6 +374,7 @@ function showStep5Bip(page, state, unitId) {
     if (/^\d{10}$/.test(val)) {
       lockedMap[code] = val;
       inp.classList.add('validated');
+      playConfirm();
       const statusEl = page.querySelector(`#status-${code}`);
       statusEl.textContent = '✓ LACRADO';
       statusEl.className   = 'order-status locked';
@@ -477,6 +481,7 @@ function showSummary(page, state, xpResult, type) {
   `;
 
   // Count-up animation
+  playComplete();
   const xpEl = page.querySelector('#xp-count');
   let current = 0;
   const target = xpResult.total;
@@ -484,6 +489,6 @@ function showSummary(page, state, xpResult, type) {
   const timer  = setInterval(() => {
     current = Math.min(current + step, target);
     xpEl.textContent = current.toLocaleString('pt-BR');
-    if (current >= target) clearInterval(timer);
+    if (current >= target) { clearInterval(timer); playXP(); }
   }, 25);
 }

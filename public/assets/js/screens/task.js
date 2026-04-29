@@ -3,6 +3,7 @@ import { navigate } from '../router.js';
 import { selectOperator } from './operator-select.js';
 import { createEvent, saveEventLocally } from '../services/firestore.js';
 import { xpTask } from '../services/xp-engine.js';
+import { playConfirm, playXP } from '../services/sound-engine.js';
 
 export async function renderTask(container, params) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -99,6 +100,7 @@ function showQuantityStep(page, state) {
 
     confirmBtn.disabled    = true;
     confirmBtn.textContent = 'SALVANDO...';
+    playConfirm();
 
     const xpTotal = xpTask({ xpPerUnit: state.xpPerUnit, quantity });
     const eventData = {
@@ -138,5 +140,5 @@ function showSummary(page, state, xpTotal, quantity) {
   `;
   const xpEl = page.querySelector('#xp-count');
   let cur = 0; const step = Math.ceil(xpTotal / 60);
-  const t = setInterval(() => { cur = Math.min(cur + step, xpTotal); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= xpTotal) clearInterval(t); }, 25);
+  const t = setInterval(() => { cur = Math.min(cur + step, xpTotal); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= xpTotal) { clearInterval(t); playXP(); } }, 25);
 }

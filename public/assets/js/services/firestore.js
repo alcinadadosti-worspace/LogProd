@@ -195,3 +195,28 @@ export async function flushPendingEvents() {
   localStorage.setItem('pending_events', JSON.stringify(remaining));
   return remaining.length;
 }
+
+/**
+ * Listener em tempo real para o telão de ranking.
+ * Retorna a função de unsubscribe — chame-a ao sair da tela.
+ * Cobra apenas 1 read por novo documento adicionado (delta, não releitura total).
+ */
+export function watchEvents({ unitId, startDate }, callback) {
+  const q = query(
+    collection(db, 'events'),
+    where('unitId', '==', unitId),
+    orderBy('createdAt', 'desc'),
+    limit(500)
+  );
+
+  return onSnapshot(q, (snap) => {
+    let events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (startDate) {
+      events = events.filter(e => {
+        const ts = e.createdAt?.toDate?.() ?? new Date(e.createdAt);
+        return ts >= startDate;
+      });
+    }
+    callback(events);
+  });
+}

@@ -131,7 +131,14 @@ async function loadUnitContent(el, unitId, tasks, isAdmin) {
     </div>
 
     <div>
-      <div class="section-title">RANKING — <span id="rank-unit-label">${unit.name}</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.25rem;">
+        <div class="section-title" style="margin:0;">RANKING — <span id="rank-unit-label">${unit.name}</span></div>
+        <a href="#/tela?unit=${unitId}" target="_blank"
+           class="btn btn--sm btn--secondary cyber-chamfer-sm"
+           title="Abrir telão em nova aba">
+          ⛶ TELÃO
+        </a>
+      </div>
       <div class="filter-bar" id="rank-filters">
         ${['today','week','month','all'].map((p, i) => `
           <button class="filter-btn ${i===2?'active':''}" data-period="${p}">

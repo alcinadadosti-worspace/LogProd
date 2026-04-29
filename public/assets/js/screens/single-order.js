@@ -5,6 +5,7 @@ import { parseSpreadsheet } from '../services/spreadsheet-parser.js';
 import { createEvent, saveEventLocally, getGlobalConfig } from '../services/firestore.js';
 import { xpBatch } from '../services/xp-engine.js';
 import { Chronometer } from '../components/chronometer.js';
+import { playStart, playConfirm, playComplete, playXP } from '../services/sound-engine.js';
 
 export async function renderSingleOrder(container, params) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -166,6 +167,7 @@ function showSepChrono(page, state, unitId) {
     </div>
   `;
   chrono.start();
+  playStart();
 
   page.querySelector('#finish-sep').addEventListener('click', () => {
     chrono.stop();
@@ -236,6 +238,7 @@ function showBipStep(page, state, unitId) {
   const validateBtn = page.querySelector('#validate-box');
 
   chrono.start();
+  playStart();
 
   boxInput.addEventListener('input', () => {
     boxInput.value = boxInput.value.replace(/\D/g, '');
@@ -247,6 +250,7 @@ function showBipStep(page, state, unitId) {
 
   validateBtn.addEventListener('click', async () => {
     chrono.stop();
+    playConfirm();
     state.bipSeconds = chrono.getSeconds();
     state.boxCode    = boxInput.value.trim();
     await saveSingleOrder(page, state, unitId, true);
@@ -298,6 +302,7 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
     return page.querySelector('#xp-count');
   })();
 
+  playComplete();
   let cur = 0; const target = xpResult.total; const step = Math.ceil(target / 60);
-  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) clearInterval(t); }, 25);
+  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) { clearInterval(t); playXP(); } }, 25);
 }

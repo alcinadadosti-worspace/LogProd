@@ -5,6 +5,7 @@ import { parseSpreadsheet } from '../services/spreadsheet-parser.js';
 import { createEvent, saveEventLocally, getGlobalConfig, findSeparationBatch } from '../services/firestore.js';
 import { xpBatch } from '../services/xp-engine.js';
 import { Chronometer } from '../components/chronometer.js';
+import { playStart, playConfirm, playComplete, playXP } from '../services/sound-engine.js';
 
 export async function renderOnlyBipper(container, params) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -214,6 +215,7 @@ function showBippingChrono(page, state, unitId) {
 
   const bipStart = new Date();
   chrono.start();
+  playStart();
 
   function updateProgress() {
     const count = Object.keys(lockedMap).length;
@@ -230,6 +232,7 @@ function showBippingChrono(page, state, unitId) {
     if (/^\d{10}$/.test(inp.value)) {
       lockedMap[code] = inp.value;
       inp.classList.add('validated');
+      playConfirm();
       page.querySelector(`#status-${code}`).textContent = '✓ LACRADO';
       page.querySelector(`#status-${code}`).className   = 'order-status locked';
       const next = [...page.querySelectorAll('.order-box-input:not(.validated)')];
@@ -299,6 +302,7 @@ async function save(page, state, unitId) {
     return page.querySelector('#xp-count');
   })();
 
+  playComplete();
   let cur = 0; const target = xpResult.total; const step = Math.ceil(target / 60);
-  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) clearInterval(t); }, 25);
+  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) { clearInterval(t); playXP(); } }, 25);
 }
