@@ -1,16 +1,32 @@
-import { getCurrentUser, getSessionContext } from '../auth.js';
-import { navigate } from '../router.js';
-import { selectOperator } from './operator-select.js';
-import { parseSpreadsheet } from '../services/spreadsheet-parser.js';
-import { createEvent, saveEventLocally, getGlobalConfig, findSeparationBatch } from '../services/firestore.js';
-import { xpBatch } from '../services/xp-engine.js';
-import { Chronometer } from '../components/chronometer.js';
-import { playStart, playConfirm, playComplete, playXP } from '../services/sound-engine.js';
+import { getCurrentUser, getSessionContext } from "../auth.js";
+import { navigate } from "../router.js";
+import { selectOperator } from "./operator-select.js";
+import { parseSpreadsheet } from "../services/spreadsheet-parser.js";
+import {
+  createEvent,
+  saveEventLocally,
+  getGlobalConfig,
+  findSeparationBatch,
+} from "../services/firestore.js";
+import { xpBatch } from "../services/xp-engine.js";
+import { Chronometer } from "../components/chronometer.js";
+import {
+  playStart,
+  playConfirm,
+  playComplete,
+  playXP,
+} from "../services/sound-engine.js";
 
 export async function renderOnlyBipper(container, params) {
-  if (!getCurrentUser()) { navigate('/login'); return; }
+  if (!getCurrentUser()) {
+    navigate("/login");
+    return;
+  }
   const ctx = getSessionContext();
-  if (!ctx) { navigate('/pin'); return; }
+  if (!ctx) {
+    navigate("/pin");
+    return;
+  }
   const unitId = params.unit || ctx.unitId;
 
   container.innerHTML = `
@@ -21,14 +37,30 @@ export async function renderOnlyBipper(container, params) {
     </div>
     <div class="page screen-enter" id="bip-page"></div>
   `;
-  container.querySelector('#back-btn').addEventListener('click', () => navigate('/dashboard'));
+  container
+    .querySelector("#back-btn")
+    .addEventListener("click", () => navigate("/dashboard"));
 
-  const page  = container.querySelector('#bip-page');
-  const state = { operator: null, orders: [], bippingOrders: [], batchCode: '', singleOrder: null, bipSeconds: 0, boxCode: '', boxCodes: {}, config: null, importMeta: null };
+  const page = container.querySelector("#bip-page");
+  const state = {
+    operator: null,
+    orders: [],
+    bippingOrders: [],
+    batchCode: "",
+    singleOrder: null,
+    bipSeconds: 0,
+    boxCode: "",
+    boxCodes: {},
+    config: null,
+    importMeta: null,
+  };
 
-  state.config   = await getGlobalConfig();
+  state.config = await getGlobalConfig();
   state.operator = await selectOperator(unitId);
-  if (!state.operator) { navigate('/dashboard'); return; }
+  if (!state.operator) {
+    navigate("/dashboard");
+    return;
+  }
 
   showBatchSearch(page, state, unitId);
 }
@@ -96,74 +128,78 @@ function showBatchSearch(page, state, unitId) {
     </div>
   `;
 
-  const batchInput  = page.querySelector('#batch-input');
-  const batchErr    = page.querySelector('#batch-err');
-  const searchBtn   = page.querySelector('#search-btn');
-  const orderInput  = page.querySelector('#order-input');
-  const orderErr    = page.querySelector('#order-err');
-  const orderStart  = page.querySelector('#order-start');
-  const searchRes   = page.querySelector('#search-result');
-  const foundInfo   = page.querySelector('#found-info');
-  const useFound    = page.querySelector('#use-found');
-  const fileInput   = page.querySelector('#file-input');
-  const dropArea    = page.querySelector('#drop-area');
-  const fileStatus  = page.querySelector('#file-status');
-  const fileErr     = page.querySelector('#file-err');
-  const manualStart = page.querySelector('#manual-start');
+  const batchInput = page.querySelector("#batch-input");
+  const batchErr = page.querySelector("#batch-err");
+  const searchBtn = page.querySelector("#search-btn");
+  const orderInput = page.querySelector("#order-input");
+  const orderErr = page.querySelector("#order-err");
+  const orderStart = page.querySelector("#order-start");
+  const searchRes = page.querySelector("#search-result");
+  const foundInfo = page.querySelector("#found-info");
+  const useFound = page.querySelector("#use-found");
+  const fileInput = page.querySelector("#file-input");
+  const dropArea = page.querySelector("#drop-area");
+  const fileStatus = page.querySelector("#file-status");
+  const fileErr = page.querySelector("#file-err");
+  const manualStart = page.querySelector("#manual-start");
 
   let manualOrders = [];
 
-  batchInput.addEventListener('input', () => {
-    const v = batchInput.value.replace(/\D/g, '');
+  batchInput.addEventListener("input", () => {
+    const v = batchInput.value.replace(/\D/g, "");
     batchInput.value = v;
     if (v) {
-      orderInput.value = '';
-      orderErr.textContent = '';
+      orderInput.value = "";
+      orderErr.textContent = "";
       orderStart.disabled = true;
     }
-    batchErr.textContent = v && !/^\d{8}$/.test(v) ? '> DEVE TER 8 DÍGITOS' : '';
-    searchBtn.disabled   = !/^\d{8}$/.test(v);
-    searchRes.style.display = 'none';
-    useFound.style.display  = 'none';
+    batchErr.textContent =
+      v && !/^\d{8}$/.test(v) ? "> DEVE TER 8 DÍGITOS" : "";
+    searchBtn.disabled = !/^\d{8}$/.test(v);
+    searchRes.style.display = "none";
+    useFound.style.display = "none";
     checkManual();
   });
 
-  orderInput.addEventListener('input', () => {
-    const v = orderInput.value.replace(/\D/g, '');
+  orderInput.addEventListener("input", () => {
+    const v = orderInput.value.replace(/\D/g, "");
     orderInput.value = v;
     if (v) {
-      batchInput.value = '';
+      batchInput.value = "";
       batchInput.readOnly = false;
-      batchErr.textContent = '';
+      batchErr.textContent = "";
       searchBtn.disabled = true;
-      searchRes.style.display = 'none';
-      useFound.style.display = 'none';
+      searchRes.style.display = "none";
+      useFound.style.display = "none";
       manualStart.disabled = true;
     }
-    orderErr.textContent = v && !/^\d{9}$/.test(v) ? '> DEVE TER 9 DIGITOS' : '';
+    orderErr.textContent =
+      v && !/^\d{9}$/.test(v) ? "> DEVE TER 9 DIGITOS" : "";
     orderStart.disabled = !/^\d{9}$/.test(v);
   });
 
-  orderInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !orderStart.disabled) orderStart.click(); });
+  orderInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !orderStart.disabled) orderStart.click();
+  });
 
-  orderStart.addEventListener('click', () => {
+  orderStart.addEventListener("click", () => {
     const orderCode = orderInput.value.trim();
     if (!/^\d{9}$/.test(orderCode)) return;
-    state.batchCode = '';
+    state.batchCode = "";
     state.orders = [];
     state.bippingOrders = [];
     state.importMeta = null;
-    state.singleOrder = { code: orderCode, cycle: '', items: 1 };
+    state.singleOrder = { code: orderCode, cycle: "", items: 1 };
     showSingleOrderBipping(page, state, unitId);
   });
 
-  searchBtn.addEventListener('click', async () => {
+  searchBtn.addEventListener("click", async () => {
     const bc = batchInput.value.trim();
-    searchBtn.disabled   = true;
-    searchBtn.textContent = 'BUSCANDO...';
-    searchRes.style.display = 'block';
-    foundInfo.textContent = '';
-    useFound.style.display = 'none';
+    searchBtn.disabled = true;
+    searchBtn.textContent = "BUSCANDO...";
+    searchRes.style.display = "block";
+    foundInfo.textContent = "";
+    useFound.style.display = "none";
 
     try {
       const ev = await findSeparationBatch(unitId, bc);
@@ -172,62 +208,68 @@ function showBatchSearch(page, state, unitId) {
         const importMeta = ev.batch?.importMeta || null;
         foundInfo.innerHTML = `
           ✓ Lote <span class="text-accent">${bc}</span> encontrado —
-          ${orders.length} ${importMeta?.sourceType === 'pdf' ? 'materiais' : 'pedidos'}, ${ev.batch?.totalItems} itens
+          ${orders.length} ${importMeta?.sourceType === "pdf" ? "materiais" : "pedidos"}, ${ev.batch?.totalItems} itens
         `;
         state.batchCode = bc;
-        state.orders    = orders.map(o => ({
+        state.orders = orders.map((o) => ({
           code: o.code,
           cycle: o.cycle,
           items: o.items,
           approvedAt: o.approvedAt ? new Date(o.approvedAt) : null,
-          sourceType: o.sourceType || 'spreadsheet',
+          sourceType: o.sourceType || "spreadsheet",
           material: o.material || null,
           sku: o.sku || o.material || null,
           description: o.description || null,
           address: o.address || null,
-          addressed: typeof o.addressed === 'boolean' ? o.addressed : null,
+          addressed: typeof o.addressed === "boolean" ? o.addressed : null,
         }));
         state.importMeta = importMeta;
-        useFound.style.display = 'block';
+        useFound.style.display = "block";
       } else {
         foundInfo.innerHTML = `<span class="text-destructive">✗ Lote ${bc} não encontrado como separação salva.</span>`;
       }
     } catch {
-      foundInfo.textContent = '> Erro na busca.';
+      foundInfo.textContent = "> Erro na busca.";
     }
 
-    searchBtn.disabled    = false;
-    searchBtn.textContent = '🔍 BUSCAR LOTE NO SISTEMA';
+    searchBtn.disabled = false;
+    searchBtn.textContent = "🔍 BUSCAR LOTE NO SISTEMA";
   });
 
-  useFound.addEventListener('click', () => {
-    showBatchOrderCount(page, state, unitId, () => showBatchSearch(page, state, unitId));
+  useFound.addEventListener("click", () => {
+    showBatchOrderCount(page, state, unitId, () =>
+      showBatchSearch(page, state, unitId),
+    );
   });
 
   async function handleFile(file) {
     try {
       const result = await parseSpreadsheet(file);
-      if (result.sourceType === 'pdf' && result.pdfType !== 'batch') {
-        throw new Error('Este PDF e de pedido avulso. Use a opcao PEDIDO AVULSO.');
+      if (result.sourceType === "pdf" && result.pdfType !== "batch") {
+        throw new Error(
+          "Este PDF e de pedido avulso. Use a opcao PEDIDO AVULSO.",
+        );
       }
-      orderInput.value = '';
-      orderErr.textContent = '';
+      orderInput.value = "";
+      orderErr.textContent = "";
       orderStart.disabled = true;
       const { orders, skipped } = result;
       manualOrders = orders;
-      state.importMeta = result.sourceType === 'pdf' ? result : null;
-      if (result.sourceType === 'pdf') {
+      state.importMeta = result.sourceType === "pdf" ? result : null;
+      if (result.sourceType === "pdf") {
         batchInput.value = result.batchCode;
         batchInput.readOnly = true;
-        batchErr.textContent = '';
-        fileStatus.innerHTML = `✓ PDF: lote <span class="text-accent">${result.batchCode}</span>, <span class="text-accent">${orders.length} materiais</span>, ${result.totalItems} itens. ${result.unaddressedItems > 0 ? result.unaddressedItems + ' sem endereco.' : ''}`;
+        batchErr.textContent = "";
+        fileStatus.innerHTML = `✓ PDF: lote <span class="text-accent">${result.batchCode}</span>, <span class="text-accent">${orders.length} materiais</span>, ${result.totalItems} itens. ${result.unaddressedItems > 0 ? result.unaddressedItems + " sem endereco." : ""}`;
       } else {
-        batchInput.value = '';
+        batchInput.value = "";
         batchInput.readOnly = false;
-        fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>.${skipped ? ' ' + skipped + ' ignorados.' : ''}`;
+        fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>.${skipped ? " " + skipped + " ignorados." : ""}`;
       }
       checkManual();
-    } catch (err) { fileErr.textContent = '> ERRO: ' + err.message; }
+    } catch (err) {
+      fileErr.textContent = "> ERRO: " + err.message;
+    }
   }
 
   function checkManual() {
@@ -235,27 +277,40 @@ function showBatchSearch(page, state, unitId) {
     manualStart.disabled = manualOrders.length === 0 || !/^\d{8}$/.test(bc);
   }
 
-  fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
-  dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
-  dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
-  dropArea.addEventListener('drop', e => { e.preventDefault(); dropArea.classList.remove('drag-over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files[0]) handleFile(e.target.files[0]);
+  });
+  dropArea.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropArea.classList.add("drag-over");
+  });
+  dropArea.addEventListener("dragleave", () =>
+    dropArea.classList.remove("drag-over"),
+  );
+  dropArea.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropArea.classList.remove("drag-over");
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
 
-  manualStart.addEventListener('click', () => {
+  manualStart.addEventListener("click", () => {
     state.batchCode = batchInput.value.trim();
-    state.orders    = manualOrders;
-    showBatchOrderCount(page, state, unitId, () => showBatchSearch(page, state, unitId));
+    state.orders = manualOrders;
+    showBatchOrderCount(page, state, unitId, () =>
+      showBatchSearch(page, state, unitId),
+    );
   });
 }
 
 function buildBippingOrders(count) {
   return Array.from({ length: count }, (_, index) => {
-    const number = String(index + 1).padStart(2, '0');
+    const number = String(index + 1).padStart(2, "0");
     return {
       code: `PEDIDO-${number}`,
-      cycle: '',
+      cycle: "",
       approvedAt: null,
       items: 0,
-      sourceType: 'batch-bipping-order',
+      sourceType: "batch-bipping-order",
     };
   });
 }
@@ -269,7 +324,7 @@ function showBatchOrderCount(page, state, unitId, onBack) {
     <div class="card cyber-chamfer" style="max-width:520px;">
       <div class="section-title mb-2">QUANTIDADE DE PEDIDOS DO LOTE</div>
       <div class="text-muted text-xs mb-3" style="letter-spacing:0.1em;">
-        LOTE <span class="text-accent">${state.batchCode}</span> · ${state.orders.reduce((s,o)=>s+(o.items || 0),0)} ITENS
+        LOTE <span class="text-accent">${state.batchCode}</span> · ${state.orders.reduce((s, o) => s + (o.items || 0), 0)} ITENS
       </div>
 
       <div class="input-group">
@@ -288,21 +343,24 @@ function showBatchOrderCount(page, state, unitId, onBack) {
     </div>
   `;
 
-  const input = page.querySelector('#pdf-order-count');
-  const err = page.querySelector('#pdf-order-count-err');
-  const continueBtn = page.querySelector('#continue-bip');
+  const input = page.querySelector("#pdf-order-count");
+  const err = page.querySelector("#pdf-order-count-err");
+  const continueBtn = page.querySelector("#continue-bip");
 
   function checkReady() {
     const count = parseInt(input.value, 10);
     const valid = Number.isInteger(count) && count >= 1 && count <= 999;
-    err.textContent = input.value && !valid ? '> INFORME UMA QUANTIDADE ENTRE 1 E 999' : '';
+    err.textContent =
+      input.value && !valid ? "> INFORME UMA QUANTIDADE ENTRE 1 E 999" : "";
     continueBtn.disabled = !valid;
   }
 
-  input.addEventListener('input', checkReady);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !continueBtn.disabled) continueBtn.click(); });
-  page.querySelector('#back-step').addEventListener('click', onBack);
-  continueBtn.addEventListener('click', () => {
+  input.addEventListener("input", checkReady);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !continueBtn.disabled) continueBtn.click();
+  });
+  page.querySelector("#back-step").addEventListener("click", onBack);
+  continueBtn.addEventListener("click", () => {
     const count = parseInt(input.value, 10);
     if (!Number.isInteger(count) || count < 1 || count > 999) return;
     state.bippingOrders = buildBippingOrders(count);
@@ -312,11 +370,11 @@ function showBatchOrderCount(page, state, unitId, onBack) {
 
 function showBippingChrono(page, state, unitId) {
   const bippingOrders = getBippingOrders(state);
-  const isPdfBipping = state.importMeta?.sourceType === 'pdf';
+  const isPdfBipping = state.importMeta?.sourceType === "pdf";
   const showBatchColumn = isPdfBipping || state.bippingOrders?.length > 0;
   const lockedMap = {};
-  const chrono = new Chronometer(sec => {
-    const el = page.querySelector('#chrono-bip');
+  const chrono = new Chronometer((sec) => {
+    const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
   });
 
@@ -337,19 +395,23 @@ function showBippingChrono(page, state, unitId) {
         <div style="padding:0.5rem 1rem;border-bottom:1px solid var(--border);display:flex;
                     justify-content:space-between;font-size:0.65rem;font-family:var(--font-terminal);
                     color:var(--muted-fg);letter-spacing:0.15em;">
-          <span>PEDIDO</span><span>${showBatchColumn ? 'LOTE' : 'CICLO'}</span><span>${showBatchColumn ? 'CAIXA' : 'ITENS'}</span>
+          <span>PEDIDO</span><span>${showBatchColumn ? "LOTE" : "CICLO"}</span><span>${showBatchColumn ? "CAIXA" : "ITENS"}</span>
           <span>CÓD. CAIXA (10 DIG.)</span><span>STATUS</span>
         </div>
         <div id="bip-list">
-          ${bippingOrders.map(o => `
+          ${bippingOrders
+            .map(
+              (o) => `
             <div class="order-item" id="row-${o.code}">
               <span class="order-code">${o.code}</span>
               <span class="order-cycle">${showBatchColumn ? state.batchCode : o.cycle}</span>
-              <span class="order-items">${showBatchColumn ? '-' : o.items}</span>
+              <span class="order-items">${showBatchColumn ? "-" : o.items}</span>
               <input type="text" class="order-box-input" maxlength="10"
                      placeholder="0000000000" data-order="${o.code}" inputmode="numeric">
               <span class="order-status pending" id="status-${o.code}">PENDENTE</span>
-            </div>`).join('')}
+            </div>`,
+            )
+            .join("")}
         </div>
       </div>
 
@@ -370,56 +432,60 @@ function showBippingChrono(page, state, unitId) {
   playStart();
 
   async function finishBipping() {
-    if (isFinishing || Object.keys(lockedMap).length < bippingOrders.length) return;
+    if (isFinishing || Object.keys(lockedMap).length < bippingOrders.length)
+      return;
     isFinishing = true;
-    const finishBtn = page.querySelector('#finish-bip');
+    const finishBtn = page.querySelector("#finish-bip");
     if (finishBtn) finishBtn.disabled = true;
     chrono.stop();
     state.bipSeconds = chrono.getSeconds();
-    state.bipStart   = bipStart;
-    state.bipEnd     = new Date();
-    state.boxCodes   = { ...lockedMap };
+    state.bipStart = bipStart;
+    state.bipEnd = new Date();
+    state.boxCodes = { ...lockedMap };
     await save(page, state, unitId);
   }
 
   function updateProgress() {
     const count = Object.keys(lockedMap).length;
-    page.querySelector('#lock-count').textContent        = count;
-    page.querySelector('#lock-progress').style.width     = Math.round((count / bippingOrders.length) * 100) + '%';
-    page.querySelector('#finish-bip').disabled           = count < bippingOrders.length;
+    page.querySelector("#lock-count").textContent = count;
+    page.querySelector("#lock-progress").style.width =
+      Math.round((count / bippingOrders.length) * 100) + "%";
+    page.querySelector("#finish-bip").disabled = count < bippingOrders.length;
   }
 
-  page.querySelector('#bip-list').addEventListener('input', e => {
+  page.querySelector("#bip-list").addEventListener("input", (e) => {
     const inp = e.target;
-    if (!inp.classList.contains('order-box-input')) return;
+    if (!inp.classList.contains("order-box-input")) return;
     const code = inp.dataset.order;
-    inp.value  = inp.value.replace(/\D/g, '');
+    inp.value = inp.value.replace(/\D/g, "");
     if (/^\d{10}$/.test(inp.value)) {
       lockedMap[code] = inp.value;
-      inp.classList.add('validated');
+      inp.classList.add("validated");
       playConfirm();
-      page.querySelector(`#status-${code}`).textContent = '✓ LACRADO';
-      page.querySelector(`#status-${code}`).className   = 'order-status locked';
-      const next = [...page.querySelectorAll('.order-box-input:not(.validated)')];
+      page.querySelector(`#status-${code}`).textContent = "✓ LACRADO";
+      page.querySelector(`#status-${code}`).className = "order-status locked";
+      const next = [
+        ...page.querySelectorAll(".order-box-input:not(.validated)"),
+      ];
       if (next[0]) next[0].focus();
     } else if (lockedMap[code]) {
       delete lockedMap[code];
-      inp.classList.remove('validated');
-      page.querySelector(`#status-${code}`).textContent = 'PENDENTE';
-      page.querySelector(`#status-${code}`).className   = 'order-status pending';
+      inp.classList.remove("validated");
+      page.querySelector(`#status-${code}`).textContent = "PENDENTE";
+      page.querySelector(`#status-${code}`).className = "order-status pending";
     }
     updateProgress();
     finishBipping();
   });
 
-  page.querySelector('#finish-bip').addEventListener('click', finishBipping);
+  page.querySelector("#finish-bip").addEventListener("click", finishBipping);
 
   return () => chrono.stop();
 }
 
 function showSingleOrderBipping(page, state, unitId) {
-  const chrono = new Chronometer(sec => {
-    const el = page.querySelector('#chrono-bip');
+  const chrono = new Chronometer((sec) => {
+    const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
   });
 
@@ -438,7 +504,7 @@ function showSingleOrderBipping(page, state, unitId) {
           <label class="input-label">CODIGO DA CAIXA (10 DIGITOS)</label>
           <div class="input-wrapper">
             <span class="input-prefix">&gt;</span>
-            <input id="box-code" class="input" type="text" maxlength="10" placeholder="0000000000" inputmode="numeric" autofocus>
+            <input id="box-code" class="input" type="text" maxlength="12" placeholder="0000000000" inputmode="numeric" autofocus>
           </div>
           <div class="input-error-msg" id="box-err"></div>
         </div>
@@ -449,9 +515,9 @@ function showSingleOrderBipping(page, state, unitId) {
     </div>
   `;
 
-  const boxInput = page.querySelector('#box-code');
-  const boxErr = page.querySelector('#box-err');
-  const validateBtn = page.querySelector('#validate-box');
+  const boxInput = page.querySelector("#box-code");
+  const boxErr = page.querySelector("#box-err");
+  const validateBtn = page.querySelector("#validate-box");
   const bipStart = new Date();
   let isFinishing = false;
 
@@ -472,15 +538,24 @@ function showSingleOrderBipping(page, state, unitId) {
     await saveSingleOrderBipping(page, state, unitId);
   }
 
-  boxInput.addEventListener('input', () => {
-    boxInput.value = boxInput.value.replace(/\D/g, '');
-    boxErr.textContent = boxInput.value && !/^\d{10}$/.test(boxInput.value) ? '> DEVE TER 10 DIGITOS' : '';
-    validateBtn.disabled = !/^\d{10}$/.test(boxInput.value);
-    finishBipping();
+  boxInput.addEventListener("input", () => {
+    // remove tudo que não for dígito
+    let val = boxInput.value.replace(/\D/g, "");
+    // remove zeros à esquerda (vindo de leitura de código de barras como 001529677866)
+    val = val.replace(/^0+/, "") || "";
+    // limita a 10 dígitos
+    if (val.length > 10) val = val.slice(0, 10);
+    boxInput.value = val;
+    boxErr.textContent =
+      val && !/^\d{10}$/.test(val) ? "> DEVE TER 10 DIGITOS" : "";
+    validateBtn.disabled = !/^\d{10}$/.test(val);
+    if (/^\d{10}$/.test(val)) finishBipping();
   });
 
-  boxInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !validateBtn.disabled) finishBipping(); });
-  validateBtn.addEventListener('click', finishBipping);
+  boxInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !validateBtn.disabled) finishBipping();
+  });
+  validateBtn.addEventListener("click", finishBipping);
 
   return () => chrono.stop();
 }
@@ -489,16 +564,21 @@ async function saveSingleOrderBipping(page, state, unitId) {
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
 
   const items = state.singleOrder.items || 1;
-  const xpResult = xpBatch({ orders: 1, items, seconds: state.bipSeconds, config: state.config });
+  const xpResult = xpBatch({
+    orders: 1,
+    items,
+    seconds: state.bipSeconds,
+    config: state.config,
+  });
 
   const eventData = {
     unitId,
     stockistId: state.operator.id,
-    type: 'SINGLE_ORDER',
+    type: "SINGLE_ORDER",
     xp: xpResult.total,
     singleOrder: {
       orderCode: state.singleOrder.code,
-      cycle: state.singleOrder.cycle || '',
+      cycle: state.singleOrder.cycle || "",
       items,
       importMeta: null,
       separationSeconds: null,
@@ -507,11 +587,12 @@ async function saveSingleOrderBipping(page, state, unitId) {
     },
   };
 
-  try { await createEvent(eventData); }
-  catch {
+  try {
+    await createEvent(eventData);
+  } catch {
     try {
       saveEventLocally(eventData);
-      document.getElementById('sync-banner')?.classList.add('visible');
+      document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `
         <div class="text-center mt-4">
@@ -529,7 +610,7 @@ async function saveSingleOrderBipping(page, state, unitId) {
         <div class="xp-summary cyber-chamfer-lg fade-in">
           <div class="xp-label">XP GANHO - BIPAGEM PEDIDO</div>
           <span class="xp-value" id="xp-count">0</span>
-          ${xpResult.bonusPct > 0 ? `<div class="xp-bonus-tag">+${(xpResult.bonusPct*100).toFixed(0)}% BONUS</div>` : ''}
+          ${xpResult.bonusPct > 0 ? `<div class="xp-bonus-tag">+${(xpResult.bonusPct * 100).toFixed(0)}% BONUS</div>` : ""}
         </div>
         <div class="card cyber-chamfer mt-2">
           <div class="stat-row"><span class="stat-label">PEDIDO</span><span class="stat-value text-accent">${state.singleOrder.code}</span></div>
@@ -539,40 +620,51 @@ async function saveSingleOrderBipping(page, state, unitId) {
         </div>
         <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
       </div>`;
-    return page.querySelector('#xp-count');
+    return page.querySelector("#xp-count");
   })();
 
   playComplete();
-  let cur = 0; const target = xpResult.total; const step = Math.ceil(target / 60);
-  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) { clearInterval(t); playXP(); } }, 25);
+  let cur = 0;
+  const target = xpResult.total;
+  const step = Math.ceil(target / 60);
+  const t = setInterval(() => {
+    cur = Math.min(cur + step, target);
+    xpEl.textContent = cur.toLocaleString("pt-BR");
+    if (cur >= target) {
+      clearInterval(t);
+      playXP();
+    }
+  }, 25);
 }
 
 function serializeOrder(o) {
   return {
     code: o.code,
-    cycle: o.cycle || '',
+    cycle: o.cycle || "",
     approvedAt: o.approvedAt?.toISOString?.() ?? null,
     items: o.items,
-    sourceType: o.sourceType || 'spreadsheet',
+    sourceType: o.sourceType || "spreadsheet",
     material: o.material || null,
     sku: o.sku || o.material || null,
     description: o.description || null,
     address: o.address || null,
-    addressed: typeof o.addressed === 'boolean' ? o.addressed : null,
+    addressed: typeof o.addressed === "boolean" ? o.addressed : null,
   };
 }
 
 function serializeImportMeta(meta) {
-  if (meta?.sourceType !== 'pdf') return null;
+  if (meta?.sourceType !== "pdf") return null;
   return {
-    sourceType: 'pdf',
-    pdfType: meta.pdfType || 'batch',
+    sourceType: "pdf",
+    pdfType: meta.pdfType || "batch",
     batchCode: meta.batchCode,
     orderCode: meta.orderCode || null,
     separationBatchCode: meta.separationBatchCode || null,
     exportedDate: meta.exportedDate,
     exportedTime: meta.exportedTime,
-    exportedAt: meta.exportedAt?.toISOString ? meta.exportedAt.toISOString() : (meta.exportedAt || null),
+    exportedAt: meta.exportedAt?.toISOString
+      ? meta.exportedAt.toISOString()
+      : meta.exportedAt || null,
     orderDate: meta.orderDate || null,
     cycle: meta.cycle || null,
     declaredItems: meta.declaredItems || null,
@@ -588,21 +680,35 @@ async function save(page, state, unitId) {
 
   const totalItems = state.orders.reduce((s, o) => s + (o.items || 0), 0);
   const bippingOrders = getBippingOrders(state);
-  const orderCount = state.bippingOrders?.length ? bippingOrders.length : state.orders.length;
-  const xpResult   = xpBatch({ orders: orderCount, items: totalItems, seconds: state.bipSeconds, config: state.config });
-  const countLabel = state.bippingOrders?.length ? 'PEDIDOS BIPADOS' : 'PEDIDOS';
+  const orderCount = state.bippingOrders?.length
+    ? bippingOrders.length
+    : state.orders.length;
+  const xpResult = xpBatch({
+    orders: orderCount,
+    items: totalItems,
+    seconds: state.bipSeconds,
+    config: state.config,
+  });
+  const countLabel = state.bippingOrders?.length
+    ? "PEDIDOS BIPADOS"
+    : "PEDIDOS";
 
   const eventData = {
-    unitId, stockistId: state.operator.id,
-    type: 'ONLY_BIPPING', xp: xpResult.total,
+    unitId,
+    stockistId: state.operator.id,
+    type: "ONLY_BIPPING",
+    xp: xpResult.total,
     batch: {
       batchCode: state.batchCode,
       orders: state.orders.map(serializeOrder),
       bippingOrders: state.bippingOrders.map(serializeOrder),
       importMeta: serializeImportMeta(state.importMeta),
-      totalOrders: orderCount, totalItems,
+      totalOrders: orderCount,
+      totalItems,
       totalMaterials: state.orders.length,
-      separationSeconds: null, separationStartedAt: null, separationFinishedAt: null,
+      separationSeconds: null,
+      separationStartedAt: null,
+      separationFinishedAt: null,
       bippingStartedAt: state.bipStart.toISOString(),
       bippingFinishedAt: state.bipEnd.toISOString(),
       bippingSeconds: state.bipSeconds,
@@ -610,11 +716,12 @@ async function save(page, state, unitId) {
     },
   };
 
-  try { await createEvent(eventData); }
-  catch {
+  try {
+    await createEvent(eventData);
+  } catch {
     try {
       saveEventLocally(eventData);
-      document.getElementById('sync-banner')?.classList.add('visible');
+      document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `
         <div class="text-center mt-4">
@@ -634,22 +741,31 @@ async function save(page, state, unitId) {
         <div class="xp-summary cyber-chamfer-lg fade-in">
           <div class="xp-label">XP GANHO — BIPAGEM</div>
           <span class="xp-value" id="xp-count">0</span>
-          ${xpResult.bonusPct > 0 ? `<div class="xp-bonus-tag">+${(xpResult.bonusPct*100).toFixed(0)}% BÔNUS</div>` : ''}
+          ${xpResult.bonusPct > 0 ? `<div class="xp-bonus-tag">+${(xpResult.bonusPct * 100).toFixed(0)}% BÔNUS</div>` : ""}
         </div>
         <div class="card cyber-chamfer mt-2">
           <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
           <div class="stat-row"><span class="stat-label">${countLabel}</span><span class="stat-value">${orderCount}</span></div>
-          ${state.importMeta?.sourceType === 'pdf' ? `<div class="stat-row"><span class="stat-label">MATERIAIS</span><span class="stat-value">${state.orders.length}</span></div>` : ''}
+          ${state.importMeta?.sourceType === "pdf" ? `<div class="stat-row"><span class="stat-label">MATERIAIS</span><span class="stat-value">${state.orders.length}</span></div>` : ""}
           <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value">${totalItems}</span></div>
           <div class="stat-row"><span class="stat-label">TEMPO BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>
           <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} itens/min</span></div>
         </div>
         <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
       </div>`;
-    return page.querySelector('#xp-count');
+    return page.querySelector("#xp-count");
   })();
 
   playComplete();
-  let cur = 0; const target = xpResult.total; const step = Math.ceil(target / 60);
-  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) { clearInterval(t); playXP(); } }, 25);
+  let cur = 0;
+  const target = xpResult.total;
+  const step = Math.ceil(target / 60);
+  const t = setInterval(() => {
+    cur = Math.min(cur + step, target);
+    xpEl.textContent = cur.toLocaleString("pt-BR");
+    if (cur >= target) {
+      clearInterval(t);
+      playXP();
+    }
+  }, 25);
 }
