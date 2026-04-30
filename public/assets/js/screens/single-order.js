@@ -1,16 +1,31 @@
-import { getCurrentUser, getSessionContext } from '../auth.js';
-import { navigate } from '../router.js';
-import { selectOperator } from './operator-select.js';
-import { parseSpreadsheet } from '../services/spreadsheet-parser.js';
-import { createEvent, saveEventLocally, getGlobalConfig } from '../services/firestore.js';
-import { xpBatch } from '../services/xp-engine.js';
-import { Chronometer } from '../components/chronometer.js';
-import { playStart, playConfirm, playComplete, playXP } from '../services/sound-engine.js';
+import { getCurrentUser, getSessionContext } from "../auth.js";
+import { navigate } from "../router.js";
+import { selectOperator } from "./operator-select.js";
+import { parseSpreadsheet } from "../services/spreadsheet-parser.js";
+import {
+  createEvent,
+  saveEventLocally,
+  getGlobalConfig,
+} from "../services/firestore.js";
+import { xpBatch } from "../services/xp-engine.js";
+import { Chronometer } from "../components/chronometer.js";
+import {
+  playStart,
+  playConfirm,
+  playComplete,
+  playXP,
+} from "../services/sound-engine.js";
 
 export async function renderSingleOrder(container, params) {
-  if (!getCurrentUser()) { navigate('/login'); return; }
+  if (!getCurrentUser()) {
+    navigate("/login");
+    return;
+  }
   const ctx = getSessionContext();
-  if (!ctx) { navigate('/pin'); return; }
+  if (!ctx) {
+    navigate("/pin");
+    return;
+  }
   const unitId = params.unit || ctx.unitId;
 
   container.innerHTML = `
@@ -21,14 +36,26 @@ export async function renderSingleOrder(container, params) {
     </div>
     <div class="page screen-enter" id="so-page"></div>
   `;
-  container.querySelector('#back-btn').addEventListener('click', () => navigate('/dashboard'));
+  container
+    .querySelector("#back-btn")
+    .addEventListener("click", () => navigate("/dashboard"));
 
-  const page  = container.querySelector('#so-page');
-  const state = { operator: null, order: null, sepSeconds: 0, bipSeconds: 0, boxCode: '', config: null };
+  const page = container.querySelector("#so-page");
+  const state = {
+    operator: null,
+    order: null,
+    sepSeconds: 0,
+    bipSeconds: 0,
+    boxCode: "",
+    config: null,
+  };
 
-  state.config   = await getGlobalConfig();
+  state.config = await getGlobalConfig();
   state.operator = await selectOperator(unitId);
-  if (!state.operator) { navigate('/dashboard'); return; }
+  if (!state.operator) {
+    navigate("/dashboard");
+    return;
+  }
 
   showInput(page, state, unitId);
 }
@@ -87,44 +114,51 @@ function showInput(page, state, unitId) {
     </div>
   `;
 
-  const fileInput   = page.querySelector('#file-input');
-  const dropArea    = page.querySelector('#drop-area');
-  const fileStatus  = page.querySelector('#file-status');
-  const fileErr     = page.querySelector('#file-err');
-  const codeInput   = page.querySelector('#order-code');
-  const codeErr     = page.querySelector('#code-err');
-  const cycleInput  = page.querySelector('#order-cycle');
-  const itemsInput  = page.querySelector('#order-items');
-  const itemsErr    = page.querySelector('#items-err');
-  const confirmBtn  = page.querySelector('#confirm-btn');
+  const fileInput = page.querySelector("#file-input");
+  const dropArea = page.querySelector("#drop-area");
+  const fileStatus = page.querySelector("#file-status");
+  const fileErr = page.querySelector("#file-err");
+  const codeInput = page.querySelector("#order-code");
+  const codeErr = page.querySelector("#code-err");
+  const cycleInput = page.querySelector("#order-cycle");
+  const itemsInput = page.querySelector("#order-items");
+  const itemsErr = page.querySelector("#items-err");
+  const confirmBtn = page.querySelector("#confirm-btn");
   let importedPdfOrder = null;
 
   function checkReady() {
     const c = codeInput.value.trim();
     const i = parseInt(itemsInput.value, 10);
     const validImportedPdf = importedPdfOrder && c === importedPdfOrder.code;
-    confirmBtn.disabled = (!/^\d{9}$/.test(c) && !validImportedPdf) || isNaN(i) || i < 1;
+    confirmBtn.disabled =
+      (!/^\d{9}$/.test(c) && !validImportedPdf) || isNaN(i) || i < 1;
   }
 
   async function handleFile(file) {
-    fileErr.textContent = '';
+    fileErr.textContent = "";
     try {
       const result = await parseSpreadsheet(file);
       const { orders, skipped } = result;
-      if (orders.length === 0) { fileErr.textContent = '> Nenhum pedido válido encontrado.'; return; }
-      if (result.sourceType === 'pdf') {
-        const itemCount = result.totalItems || orders.reduce((sum, order) => sum + (order.items || 0), 0);
-        const isSingleOrderPdf = result.pdfType === 'single-order';
+      if (orders.length === 0) {
+        fileErr.textContent = "> Nenhum pedido válido encontrado.";
+        return;
+      }
+      if (result.sourceType === "pdf") {
+        const itemCount =
+          result.totalItems ||
+          orders.reduce((sum, order) => sum + (order.items || 0), 0);
+        const isSingleOrderPdf = result.pdfType === "single-order";
         const code = isSingleOrderPdf ? result.orderCode : result.batchCode;
         importedPdfOrder = {
           code,
           cycle: isSingleOrderPdf
-            ? (result.cycle || `${result.exportedDate || ''}${result.exportedTime ? ' ' + result.exportedTime : ''}`.trim())
-            : `${result.exportedDate || ''}${result.exportedTime ? ' ' + result.exportedTime : ''}`.trim(),
+            ? result.cycle ||
+              `${result.exportedDate || ""}${result.exportedTime ? " " + result.exportedTime : ""}`.trim()
+            : `${result.exportedDate || ""}${result.exportedTime ? " " + result.exportedTime : ""}`.trim(),
           items: itemCount,
           importMeta: result,
         };
-        codeInput.value  = importedPdfOrder.code;
+        codeInput.value = importedPdfOrder.code;
         cycleInput.value = importedPdfOrder.cycle;
         itemsInput.value = importedPdfOrder.items;
         fileStatus.innerHTML = isSingleOrderPdf
@@ -133,35 +167,52 @@ function showInput(page, state, unitId) {
       } else {
         importedPdfOrder = null;
         const o = orders[0];
-        codeInput.value  = o.code;
-        cycleInput.value = o.cycle || '';
-        itemsInput.value = o.items || '';
-        fileStatus.innerHTML = `✓ <span class="text-accent">${o.code}</span> importado.${skipped > 0 ? ' ' + skipped + ' ignorados.' : ''}`;
+        codeInput.value = o.code;
+        cycleInput.value = o.cycle || "";
+        itemsInput.value = o.items || "";
+        fileStatus.innerHTML = `✓ <span class="text-accent">${o.code}</span> importado.${skipped > 0 ? " " + skipped + " ignorados." : ""}`;
       }
       checkReady();
-    } catch (err) { fileErr.textContent = '> ERRO: ' + err.message; }
+    } catch (err) {
+      fileErr.textContent = "> ERRO: " + err.message;
+    }
   }
 
-  fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
-  dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
-  dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
-  dropArea.addEventListener('drop', e => { e.preventDefault(); dropArea.classList.remove('drag-over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files[0]) handleFile(e.target.files[0]);
+  });
+  dropArea.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropArea.classList.add("drag-over");
+  });
+  dropArea.addEventListener("dragleave", () =>
+    dropArea.classList.remove("drag-over"),
+  );
+  dropArea.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropArea.classList.remove("drag-over");
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
 
-  codeInput.addEventListener('input', () => {
+  codeInput.addEventListener("input", () => {
     importedPdfOrder = null;
-    codeInput.value = codeInput.value.replace(/\D/g, '');
-    codeErr.textContent = codeInput.value && !/^\d{9}$/.test(codeInput.value) ? '> DEVE TER 9 DÍGITOS' : '';
+    codeInput.value = codeInput.value.replace(/\D/g, "");
+    codeErr.textContent =
+      codeInput.value && !/^\d{9}$/.test(codeInput.value)
+        ? "> DEVE TER 9 DÍGITOS"
+        : "";
     checkReady();
   });
-  itemsInput.addEventListener('input', () => {
+  itemsInput.addEventListener("input", () => {
     const v = parseInt(itemsInput.value, 10);
-    itemsErr.textContent = itemsInput.value && (isNaN(v) || v < 1) ? '> MÍNIMO 1 ITEM' : '';
+    itemsErr.textContent =
+      itemsInput.value && (isNaN(v) || v < 1) ? "> MÍNIMO 1 ITEM" : "";
     checkReady();
   });
 
-  confirmBtn.addEventListener('click', () => {
+  confirmBtn.addEventListener("click", () => {
     state.order = {
-      code:  codeInput.value.trim(),
+      code: codeInput.value.trim(),
       cycle: cycleInput.value.trim(),
       items: parseInt(itemsInput.value, 10),
       importMeta: importedPdfOrder?.importMeta || null,
@@ -171,8 +222,8 @@ function showInput(page, state, unitId) {
 }
 
 function showSepChrono(page, state, unitId) {
-  const chrono = new Chronometer(sec => {
-    const el = page.querySelector('#chrono-sep');
+  const chrono = new Chronometer((sec) => {
+    const el = page.querySelector("#chrono-sep");
     if (el) el.textContent = Chronometer.format(sec);
   });
 
@@ -195,7 +246,7 @@ function showSepChrono(page, state, unitId) {
   chrono.start();
   playStart();
 
-  page.querySelector('#finish-sep').addEventListener('click', () => {
+  page.querySelector("#finish-sep").addEventListener("click", () => {
     chrono.stop();
     state.sepSeconds = chrono.getSeconds();
     showAskBip(page, state, unitId);
@@ -223,13 +274,19 @@ function showAskBip(page, state, unitId) {
       </div>
     </div>
   `;
-  page.querySelector('#bip-yes').addEventListener('click', () => showBipStep(page, state, unitId));
-  page.querySelector('#bip-no').addEventListener('click', () => saveSingleOrder(page, state, unitId, false));
+  page
+    .querySelector("#bip-yes")
+    .addEventListener("click", () => showBipStep(page, state, unitId));
+  page
+    .querySelector("#bip-no")
+    .addEventListener("click", () =>
+      saveSingleOrder(page, state, unitId, false),
+    );
 }
 
 function showBipStep(page, state, unitId) {
-  const chrono = new Chronometer(sec => {
-    const el = page.querySelector('#chrono-bip');
+  const chrono = new Chronometer((sec) => {
+    const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
   });
 
@@ -248,7 +305,7 @@ function showBipStep(page, state, unitId) {
           <label class="input-label">CÓDIGO DA CAIXA (10 DÍGITOS)</label>
           <div class="input-wrapper">
             <span class="input-prefix">&gt;</span>
-            <input id="box-code" class="input" type="text" maxlength="10" placeholder="0000000000" inputmode="numeric" autofocus>
+            <input id="box-code" class="input" type="text" maxlength="12" placeholder="0000000000" inputmode="numeric" autofocus>
           </div>
           <div class="input-error-msg" id="box-err"></div>
         </div>
@@ -259,9 +316,9 @@ function showBipStep(page, state, unitId) {
     </div>
   `;
 
-  const boxInput   = page.querySelector('#box-code');
-  const boxErr     = page.querySelector('#box-err');
-  const validateBtn = page.querySelector('#validate-box');
+  const boxInput = page.querySelector("#box-code");
+  const boxErr = page.querySelector("#box-err");
+  const validateBtn = page.querySelector("#validate-box");
   let isFinishing = false;
 
   chrono.start();
@@ -275,35 +332,46 @@ function showBipStep(page, state, unitId) {
     chrono.stop();
     playConfirm();
     state.bipSeconds = chrono.getSeconds();
-    state.boxCode    = boxInput.value.trim();
+    state.boxCode = boxInput.value.trim();
     await saveSingleOrder(page, state, unitId, true);
   }
 
-  boxInput.addEventListener('input', () => {
-    boxInput.value = boxInput.value.replace(/\D/g, '');
-    boxErr.textContent = boxInput.value && !/^\d{10}$/.test(boxInput.value) ? '> DEVE TER 10 DÍGITOS' : '';
-    validateBtn.disabled = !/^\d{10}$/.test(boxInput.value);
-    finishBipping();
+  boxInput.addEventListener("input", () => {
+    // remove tudo que não for dígito
+    let val = boxInput.value.replace(/\D/g, "");
+    // remove zeros à esquerda (vindo de leitura de código de barras como 001529677866)
+    val = val.replace(/^0+/, "") || "";
+    // limita a 10 dígitos
+    if (val.length > 10) val = val.slice(0, 10);
+    boxInput.value = val;
+    boxErr.textContent =
+      val && !/^\d{10}$/.test(val) ? "> DEVE TER 10 DÍGITOS" : "";
+    validateBtn.disabled = !/^\d{10}$/.test(val);
+    if (/^\d{10}$/.test(val)) finishBipping();
   });
 
-  boxInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !validateBtn.disabled) finishBipping(); });
+  boxInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !validateBtn.disabled) finishBipping();
+  });
 
-  validateBtn.addEventListener('click', finishBipping);
+  validateBtn.addEventListener("click", finishBipping);
 
   return () => chrono.stop();
 }
 
 function serializeImportMeta(meta) {
-  if (meta?.sourceType !== 'pdf') return null;
+  if (meta?.sourceType !== "pdf") return null;
   return {
-    sourceType: 'pdf',
-    pdfType: meta.pdfType || 'batch',
+    sourceType: "pdf",
+    pdfType: meta.pdfType || "batch",
     batchCode: meta.batchCode,
     orderCode: meta.orderCode || null,
     separationBatchCode: meta.separationBatchCode || null,
     exportedDate: meta.exportedDate,
     exportedTime: meta.exportedTime,
-    exportedAt: meta.exportedAt?.toISOString ? meta.exportedAt.toISOString() : (meta.exportedAt || null),
+    exportedAt: meta.exportedAt?.toISOString
+      ? meta.exportedAt.toISOString()
+      : meta.exportedAt || null,
     orderDate: meta.orderDate || null,
     cycle: meta.cycle || null,
     declaredItems: meta.declaredItems || null,
@@ -318,11 +386,18 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
 
   const totalSecs = state.sepSeconds + (withBipping ? state.bipSeconds : 0);
-  const xpResult  = xpBatch({ orders: 1, items: state.order.items, seconds: totalSecs, config: state.config });
+  const xpResult = xpBatch({
+    orders: 1,
+    items: state.order.items,
+    seconds: totalSecs,
+    config: state.config,
+  });
 
   const eventData = {
-    unitId, stockistId: state.operator.id,
-    type: 'SINGLE_ORDER', xp: xpResult.total,
+    unitId,
+    stockistId: state.operator.id,
+    type: "SINGLE_ORDER",
+    xp: xpResult.total,
     singleOrder: {
       orderCode: state.order.code,
       cycle: state.order.cycle,
@@ -334,11 +409,12 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
     },
   };
 
-  try { await createEvent(eventData); }
-  catch {
+  try {
+    await createEvent(eventData);
+  } catch {
     try {
       saveEventLocally(eventData);
-      document.getElementById('sync-banner')?.classList.add('visible');
+      document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `
         <div class="text-center mt-4">
@@ -356,22 +432,31 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
         <div class="xp-summary cyber-chamfer-lg fade-in">
           <div class="xp-label">XP GANHO — PEDIDO AVULSO</div>
           <span class="xp-value" id="xp-count">0</span>
-          ${xpResult.bonusPct > 0 ? `<div class="xp-bonus-tag">+${(xpResult.bonusPct*100).toFixed(0)}% BÔNUS</div>` : ''}
+          ${xpResult.bonusPct > 0 ? `<div class="xp-bonus-tag">+${(xpResult.bonusPct * 100).toFixed(0)}% BÔNUS</div>` : ""}
         </div>
         <div class="card cyber-chamfer mt-2">
           <div class="stat-row"><span class="stat-label">PEDIDO</span><span class="stat-value text-accent">${state.order.code}</span></div>
           <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value">${state.order.items}</span></div>
           <div class="stat-row"><span class="stat-label">SEPARAÇÃO</span><span class="stat-value">${Chronometer.format(state.sepSeconds)}</span></div>
-          ${withBipping ? `<div class="stat-row"><span class="stat-label">BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>` : ''}
+          ${withBipping ? `<div class="stat-row"><span class="stat-label">BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>` : ""}
           <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} itens/min</span></div>
           <div class="stat-row"><span class="stat-label">BÔNUS</span><span class="stat-value text-accent">+${xpResult.bonus} XP</span></div>
         </div>
         <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
       </div>`;
-    return page.querySelector('#xp-count');
+    return page.querySelector("#xp-count");
   })();
 
   playComplete();
-  let cur = 0; const target = xpResult.total; const step = Math.ceil(target / 60);
-  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) { clearInterval(t); playXP(); } }, 25);
+  let cur = 0;
+  const target = xpResult.total;
+  const step = Math.ceil(target / 60);
+  const t = setInterval(() => {
+    cur = Math.min(cur + step, target);
+    xpEl.textContent = cur.toLocaleString("pt-BR");
+    if (cur >= target) {
+      clearInterval(t);
+      playXP();
+    }
+  }, 25);
 }
