@@ -36,6 +36,7 @@ export async function renderFunctionComplete(container, params) {
     bipSeconds: 0,
     boxCodes: {},
     config: null,
+    currentChrono: null,
   };
 
   state.config = await getGlobalConfig();
@@ -43,6 +44,8 @@ export async function renderFunctionComplete(container, params) {
   if (!state.operator) { navigate('/dashboard'); return; }
 
   showStep1(page, state, unitId);
+
+  return () => { state.currentChrono?.stop(); };
 }
 
 // ─── Step 1: Upload planilha ──────────────────────────────────────────────────
@@ -188,6 +191,7 @@ function showStep3Sep(page, state, unitId) {
     const el = page.querySelector('#chrono-sep');
     if (el) el.textContent = Chronometer.format(sec);
   });
+  state.currentChrono = chrono;
 
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;text-align:center;">
@@ -288,8 +292,20 @@ async function saveOnlySeparation(page, state, unitId) {
   try {
     await createEvent(eventData);
   } catch {
-    saveEventLocally(eventData);
-    document.getElementById('sync-banner')?.classList.add('visible');
+    try {
+      saveEventLocally(eventData);
+      document.getElementById('sync-banner')?.classList.add('visible');
+    } catch {
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">⚠ ERRO AO SALVAR</div>
+          <div class="text-muted mt-2" style="max-width:360px;margin:1rem auto;">
+            Sem conexão e armazenamento local cheio.<br>Anote os dados do lote <strong>${state.batchCode}</strong> e registre manualmente.
+          </div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+      return;
+    }
   }
 
   showSummary(page, state, xpResult, 'ONLY_SEPARATION');
@@ -301,6 +317,7 @@ function showStep5Bip(page, state, unitId) {
     const el = page.querySelector('#chrono-bip');
     if (el) el.textContent = Chronometer.format(sec);
   });
+  state.currentChrono = chrono;
 
   const lockedMap = {};
 
@@ -439,8 +456,20 @@ async function saveBatch(page, state, unitId) {
   try {
     await createEvent(eventData);
   } catch {
-    saveEventLocally(eventData);
-    document.getElementById('sync-banner')?.classList.add('visible');
+    try {
+      saveEventLocally(eventData);
+      document.getElementById('sync-banner')?.classList.add('visible');
+    } catch {
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">⚠ ERRO AO SALVAR</div>
+          <div class="text-muted mt-2" style="max-width:360px;margin:1rem auto;">
+            Sem conexão e armazenamento local cheio.<br>Anote os dados do lote <strong>${state.batchCode}</strong> e registre manualmente.
+          </div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+      return;
+    }
   }
 
   showSummary(page, state, xpResult, 'BATCH');

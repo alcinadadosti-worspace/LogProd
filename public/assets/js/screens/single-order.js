@@ -279,7 +279,20 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
   };
 
   try { await createEvent(eventData); }
-  catch { saveEventLocally(eventData); document.getElementById('sync-banner')?.classList.add('visible'); }
+  catch {
+    try {
+      saveEventLocally(eventData);
+      document.getElementById('sync-banner')?.classList.add('visible');
+    } catch {
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">⚠ ERRO AO SALVAR</div>
+          <div class="text-muted mt-2">Sem conexão e armazenamento local cheio.<br>Registre o pedido manualmente.</div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+      return;
+    }
+  }
 
   const xpEl = (() => {
     page.innerHTML = `

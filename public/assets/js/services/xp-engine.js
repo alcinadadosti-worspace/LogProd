@@ -17,8 +17,10 @@ export function xpBatch({ orders, items, seconds, config }) {
   const target  = config.speedTargetItemsPerMin;
 
   let bonusPct = 0;
-  if (speed >= target * config.bonusThreshold20) bonusPct = 0.20;
-  else if (speed >= target * config.bonusThreshold10) bonusPct = 0.10;
+  if (target > 0 && speed > 0) {
+    if (speed >= target * config.bonusThreshold20) bonusPct = 0.20;
+    else if (speed >= target * config.bonusThreshold10) bonusPct = 0.10;
+  }
 
   const bonus = Math.round(subtotal * bonusPct);
   return { subtotal, bonus, total: subtotal + bonus, speed, bonusPct };

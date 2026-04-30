@@ -8,7 +8,8 @@ import { stockistPhoto } from '../services/photos.js';
 export function selectOperator(unitId) {
   return new Promise(async (resolve) => {
     let unit;
-    try { unit = await getUnit(unitId); } catch {}
+    let loadError = false;
+    try { unit = await getUnit(unitId); } catch { loadError = true; }
 
     const stockists = (unit?.stockists || []).filter(s => s.active !== false);
 
@@ -26,7 +27,7 @@ export function selectOperator(unitId) {
           </p>
           <div class="operator-grid" id="op-grid">
             ${stockists.length === 0
-              ? '<div class="text-muted text-sm">Nenhum estoquista ativo nesta unidade.</div>'
+              ? `<div class="text-muted text-sm">${loadError ? '> ERRO: falha ao carregar estoquistas. Verifique a conexão.' : 'Nenhum estoquista ativo nesta unidade.'}</div>`
               : stockists.map(s => {
                   const photo = stockistPhoto(s.name);
                   return `

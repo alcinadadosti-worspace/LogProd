@@ -174,16 +174,17 @@ export function computeRanking(events) {
     s.events++;
 
     const b = ev.batch;
-    if (b && ['BATCH', 'ONLY_SEPARATION', 'ONLY_BIPPER'].includes(ev.type)) {
+    if (b && ['BATCH', 'ONLY_SEPARATION', 'ONLY_BIPPING'].includes(ev.type)) {
       s.batches++;
       s.orders    += b.totalOrders || 0;
       s.totalSecs += (b.separationSeconds || 0) + (b.bippingSeconds || 0);
-      if (ev.type === 'BATCH' || ev.type === 'ONLY_BIPPER') s.items += b.totalItems || 0;
+      if (ev.type === 'BATCH' || ev.type === 'ONLY_BIPPING') s.items += b.totalItems || 0;
     }
     if (ev.type === 'SINGLE_ORDER') {
+      const so = ev.singleOrder || ev.batch || {};
       s.orders++;
-      s.items     += ev.batch?.totalItems || 1;
-      s.totalSecs += (ev.batch?.separationSeconds || 0) + (ev.batch?.bippingSeconds || 0);
+      s.items     += so.items || so.totalItems || 1;
+      s.totalSecs += (so.separationSeconds || 0) + (so.bippingSeconds || 0);
     }
   }
   return Object.values(map)
@@ -212,11 +213,15 @@ export function dateRangeForPeriod(period) {
   }
 }
 
-/** Local event queue for offline fallback */
+/** Local event queue for offline fallback. Throws if localStorage quota is exceeded. */
 export function saveEventLocally(eventData) {
-  const queue = JSON.parse(localStorage.getItem('pending_events') || '[]');
-  queue.push({ ...eventData, _savedAt: Date.now() });
-  localStorage.setItem('pending_events', JSON.stringify(queue));
+  try {
+    const queue = JSON.parse(localStorage.getItem('pending_events') || '[]');
+    queue.push({ ...eventData, _savedAt: Date.now() });
+    localStorage.setItem('pending_events', JSON.stringify(queue));
+  } catch {
+    throw new Error('Armazenamento local cheio — dado não salvo.');
+  }
 }
 
 export function getPendingEvents() {

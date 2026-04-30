@@ -34,7 +34,7 @@ const C = {
 
 const typeLabels = {
   BATCH: 'Função Completa', ONLY_SEPARATION: 'Só Separação',
-  ONLY_BIPPER: 'Só Bipador',  SINGLE_ORDER: 'Pedido Avulso', TASK: 'Tarefas',
+  ONLY_BIPPING: 'Só Bipador', SINGLE_ORDER: 'Pedido Avulso', TASK: 'Tarefas',
 };
 
 export async function renderAnalytics(container, params) {
@@ -133,15 +133,15 @@ export async function renderAnalytics(container, params) {
 
     // ── KPIs ──────────────────────────────────────────────────────────
     const totalXP      = events.reduce((s, e) => s + (e.xp || 0), 0);
-    const batchEvts    = events.filter(e => ['BATCH','ONLY_SEPARATION','ONLY_BIPPER'].includes(e.type));
+    const batchEvts    = events.filter(e => ['BATCH','ONLY_SEPARATION','ONLY_BIPPING'].includes(e.type));
     const totalBatches = batchEvts.length;
     const totalOrders  = events.reduce((s, e) => {
       if (e.batch?.totalOrders) return s + e.batch.totalOrders;
       return e.type === 'SINGLE_ORDER' ? s + 1 : s;
     }, 0);
     const totalItems = events.reduce((s, e) => {
-      if ((e.type === 'BATCH' || e.type === 'ONLY_BIPPER') && e.batch?.totalItems) return s + e.batch.totalItems;
-      if (e.type === 'SINGLE_ORDER') return s + (e.batch?.totalItems || 1);
+      if ((e.type === 'BATCH' || e.type === 'ONLY_BIPPING') && e.batch?.totalItems) return s + e.batch.totalItems;
+      if (e.type === 'SINGLE_ORDER') return s + (e.singleOrder?.items || e.batch?.totalItems || 1);
       return s;
     }, 0);
     const totalTaskQty   = events.filter(e => e.type === 'TASK').reduce((s, e) => s + (e.task?.quantity || 0), 0);
@@ -205,9 +205,10 @@ export async function renderAnalytics(container, params) {
           return {
             name:     u.name,
             xp:       ue.reduce((s,ev) => s+(ev.xp||0), 0),
-            batches:  ue.filter(ev => ['BATCH','ONLY_SEPARATION','ONLY_BIPPER'].includes(ev.type)).length,
+            batches:  ue.filter(ev => ['BATCH','ONLY_SEPARATION','ONLY_BIPPING'].includes(ev.type)).length,
             items:    ue.reduce((s,ev) => {
-              if ((ev.type==='BATCH'||ev.type==='ONLY_BIPPER') && ev.batch?.totalItems) return s+ev.batch.totalItems;
+              if ((ev.type==='BATCH'||ev.type==='ONLY_BIPPING') && ev.batch?.totalItems) return s+ev.batch.totalItems;
+              if (ev.type==='SINGLE_ORDER') return s+(ev.singleOrder?.items || ev.batch?.totalItems || 0);
               return s;
             }, 0),
             orders:   ue.reduce((s,ev) => s+(ev.batch?.totalOrders||(ev.type==='SINGLE_ORDER'?1:0)),0),

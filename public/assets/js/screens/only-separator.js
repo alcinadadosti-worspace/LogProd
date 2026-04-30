@@ -204,7 +204,22 @@ async function save(page, state, unitId, startedAt, finishedAt) {
   };
 
   try { await createEvent(eventData); }
-  catch { saveEventLocally(eventData); document.getElementById('sync-banner')?.classList.add('visible'); }
+  catch {
+    try {
+      saveEventLocally(eventData);
+      document.getElementById('sync-banner')?.classList.add('visible');
+    } catch {
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">⚠ ERRO AO SALVAR</div>
+          <div class="text-muted mt-2" style="max-width:360px;margin:1rem auto;">
+            Sem conexão e armazenamento local cheio.<br>Anote os dados do lote <strong>${state.batchCode}</strong> e registre manualmente.
+          </div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+      return;
+    }
+  }
 
   showSummary(page, state, xpResult);
 }

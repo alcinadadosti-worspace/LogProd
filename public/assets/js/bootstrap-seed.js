@@ -56,27 +56,32 @@ const SEED_TASKS = [
 export async function runSeed() {
   console.log('[SEED] Iniciando bootstrap...');
 
-  // Units
-  for (const [unitId, data] of Object.entries(SEED_UNITS)) {
-    await setDoc(doc(db, 'units', unitId), {
-      ...data,
-      stockists: SEED_STOCKISTS[unitId],
-    });
-    console.log('[SEED] Unit:', unitId);
+  try {
+    // Units
+    for (const [unitId, data] of Object.entries(SEED_UNITS)) {
+      await setDoc(doc(db, 'units', unitId), {
+        ...data,
+        stockists: SEED_STOCKISTS[unitId],
+      });
+      console.log('[SEED] Unit:', unitId);
+    }
+
+    // Global config
+    await setDoc(doc(db, 'config', 'global'), SEED_CONFIG_GLOBAL);
+    console.log('[SEED] Config global salva.');
+
+    // Tasks
+    for (const task of SEED_TASKS) {
+      const { id, ...data } = task;
+      await setDoc(doc(db, 'config', 'tasks', 'items', id), data);
+      console.log('[SEED] Tarefa:', id);
+    }
+
+    console.log('[SEED] ✅ Bootstrap completo! Verifique o Firestore Console.');
+  } catch (err) {
+    console.error('[SEED] ❌ Erro durante o seed — dados podem estar incompletos:', err);
+    throw err;
   }
-
-  // Global config
-  await setDoc(doc(db, 'config', 'global'), SEED_CONFIG_GLOBAL);
-  console.log('[SEED] Config global salva.');
-
-  // Tasks
-  for (const task of SEED_TASKS) {
-    const { id, ...data } = task;
-    await setDoc(doc(db, 'config', 'tasks', 'items', id), data);
-    console.log('[SEED] Tarefa:', id);
-  }
-
-  console.log('[SEED] ✅ Bootstrap completo! Verifique o Firestore Console.');
 }
 
 // Auto-run if script is loaded directly (não em módulo)

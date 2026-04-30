@@ -28,7 +28,7 @@ export async function validatePin(pin) {
   }
 
   const config = await getGlobalConfig();
-  if (pin === config.adminPin || pin === '777666') {
+  if (pin === config.adminPin) {
     const ctx = { mode: 'admin', unitId: null, unitName: 'ADMIN', pin };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(ctx));
     return ctx;

@@ -343,7 +343,9 @@ async function renderCompare(el) {
 
   // Chart.js comparison
   if (typeof Chart !== 'undefined') {
-    const ctx = el.querySelector('#compare-chart').getContext('2d');
+    const canvas = el.querySelector('#compare-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     new Chart(ctx, {
       type: 'bar',
       data: {
