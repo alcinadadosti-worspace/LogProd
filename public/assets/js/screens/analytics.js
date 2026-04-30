@@ -798,17 +798,63 @@ export async function renderAnalytics(container, params) {
       <!-- Charts row 2: Tipos + Horas -->
       <div class="grid-2 mb-2">
         <div class="card cyber-chamfer">
-          <div class="section-title mb-2">DISTRIBUIÇÃO DE OPERAÇÕES</div>
+          <div class="section-title mb-2">DISTRIBUIÇÃO DE OPERAÇÕES${isAdmin && units.length > 1 ? ' <span style="font-size:0.6rem;color:var(--muted-fg);font-family:var(--font-terminal);">— GERAL</span>' : ""}</div>
           <div style="max-width:280px;margin:0 auto;"><canvas id="ch-types"></canvas></div>
         </div>
         <div class="card cyber-chamfer">
           <div class="section-title mb-2">
-            ATIVIDADE POR HORA
+            ATIVIDADE POR HORA${isAdmin && units.length > 1 ? ' <span style="font-size:0.6rem;color:var(--muted-fg);font-family:var(--font-terminal);">— GERAL</span>' : ""}
             ${byHour[peakHour] > 0 ? `<span style="color:var(--accent);font-size:0.65rem;"> · PICO: ${String(peakHour).padStart(2, "0")}h</span>` : ""}
           </div>
           <canvas id="ch-hours"></canvas>
         </div>
       </div>
+
+      ${
+        isAdmin && units.length > 1
+          ? `
+      <!-- Atividade por hora por unidade (admin) -->
+      <div class="card cyber-chamfer mb-2">
+        <div class="section-title mb-2">ATIVIDADE POR HORA — POR UNIDADE</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.5rem;">
+          ${units
+            .map(
+              (u, idx) => `
+            <div>
+              <div style="font-family:var(--font-terminal);font-size:0.65rem;color:${idx === 0 ? "var(--accent)" : "var(--accent-3,#0284c7)"};letter-spacing:0.2em;margin-bottom:0.5rem;padding-bottom:0.4rem;border-bottom:1px solid var(--border);">${u.name}</div>
+              <canvas id="ch-hours-unit-${idx}"></canvas>
+            </div>
+          `,
+            )
+            .join("")}
+        </div>
+      </div>
+      `
+          : ""
+      }
+
+      ${
+        isAdmin && units.length > 1
+          ? `
+      <!-- Distribuição de operações por unidade (admin) -->
+      <div class="card cyber-chamfer mb-2">
+        <div class="section-title mb-2">DISTRIBUIÇÃO DE OPERAÇÕES — POR UNIDADE</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1.5rem;">
+          ${units
+            .map(
+              (u, idx) => `
+            <div>
+              <div style="font-family:var(--font-terminal);font-size:0.65rem;color:${idx === 0 ? "var(--accent)" : "var(--accent-3,#0284c7)"};letter-spacing:0.2em;margin-bottom:0.5rem;padding-bottom:0.4rem;border-bottom:1px solid var(--border);">${u.name}</div>
+              <div style="max-width:220px;margin:0 auto;"><canvas id="ch-types-unit-${idx}"></canvas></div>
+            </div>
+          `,
+            )
+            .join("")}
+        </div>
+      </div>
+      `
+          : ""
+      }
 
       <!-- Charts row 3: Velocidade + XP diário bar -->
       <div class="grid-2 mb-2">
@@ -1110,6 +1156,55 @@ export async function renderAnalytics(container, params) {
       },
     });
 
+    // Distribuição de operações por unidade (admin)
+    if (isAdmin && units.length > 1) {
+      units.forEach((u, idx) => {
+        const el = document.getElementById(`ch-types-unit-${idx}`);
+        if (!el) return;
+        const uEvents = events.filter((ev) => ev.unitId === u.id);
+        const uByType = {};
+        uEvents.forEach((e) => {
+          uByType[e.type] = (uByType[e.type] || 0) + 1;
+        });
+        const uTypeKeys = Object.keys(uByType);
+        if (uTypeKeys.length === 0) {
+          el.closest("div").insertAdjacentHTML(
+            "beforeend",
+            '<div class="text-muted text-xs mt-1">Sem dados no período.</div>',
+          );
+          return;
+        }
+        new Chart(el, {
+          type: "doughnut",
+          data: {
+            labels: uTypeKeys.map((k) => typeLabels[k] || k),
+            datasets: [
+              {
+                data: uTypeKeys.map((k) => uByType[k]),
+                backgroundColor: [
+                  C.green,
+                  C.purple,
+                  C.blue,
+                  C.amber,
+                  C.red,
+                ].slice(0, uTypeKeys.length),
+                borderWidth: 0,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: {
+                position: "bottom",
+                labels: { color: C.tickColor, font: { size: 10 }, padding: 8 },
+              },
+            },
+          },
+        });
+      });
+    }
+
     // Atividade por hora
     const maxH = Math.max(...byHour);
     new Chart(document.getElementById("ch-hours"), {
@@ -1131,6 +1226,52 @@ export async function renderAnalytics(container, params) {
       },
       options: { ...opts(), plugins: { legend: { display: false } } },
     });
+
+    // Atividade por hora por unidade (admin)
+    if (isAdmin && units.length > 1) {
+      units.forEach((u, idx) => {
+        const el = document.getElementById(`ch-hours-unit-${idx}`);
+        if (!el) return;
+        const uByHour = Array(24).fill(0);
+        events
+          .filter((ev) => ev.unitId === u.id)
+          .forEach((e) => {
+            uByHour[toDate(e.createdAt).getHours()]++;
+          });
+        const uMax = Math.max(...uByHour);
+        const uPeak = uByHour.indexOf(uMax);
+        if (uMax === 0) {
+          el.closest("div").insertAdjacentHTML(
+            "beforeend",
+            '<div class="text-muted text-xs mt-1">Sem dados no período.</div>',
+          );
+          return;
+        }
+        // adiciona pico no titulo
+        const titleEl = el.closest("div").querySelector("div[style]");
+        if (titleEl)
+          titleEl.innerHTML += ` <span style="color:var(--accent);font-size:0.6rem;"> · PICO: ${String(uPeak).padStart(2, "0")}h</span>`;
+        new Chart(el, {
+          type: "bar",
+          data: {
+            labels: Array.from(
+              { length: 24 },
+              (_, i) => String(i).padStart(2, "0") + "h",
+            ),
+            datasets: [
+              {
+                data: uByHour,
+                backgroundColor: uByHour.map((v) =>
+                  v === uMax && uMax > 0 ? C.green : "rgba(5,150,105,0.25)",
+                ),
+                borderRadius: 2,
+              },
+            ],
+          },
+          options: { ...opts(), plugins: { legend: { display: false } } },
+        });
+      });
+    }
 
     // Distribuição de velocidade
     new Chart(document.getElementById("ch-speed"), {
