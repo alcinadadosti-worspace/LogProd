@@ -67,7 +67,7 @@ function showInput(page, state, unitId) {
       <div class="text-muted text-xs mb-3">OPERADOR: <span class="text-accent">${state.operator.name}</span></div>
 
       <div style="margin-bottom:1rem;">
-        <p class="text-muted text-xs mb-1" style="letter-spacing:0.1em;">OPÇÃO 1 — IMPORTAR PLANILHA OU PDF</p>
+        <p class="text-muted text-xs mb-1" style="letter-spacing:0.1em;">IMPORTAR PLANILHA OU PDF</p>
         <div class="file-upload-area cyber-chamfer" id="drop-area">
           <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf,application/pdf">
           <div class="file-upload-icon">📂</div>
@@ -77,34 +77,29 @@ function showInput(page, state, unitId) {
         <div id="file-err" class="input-error-msg"></div>
       </div>
 
-      <div style="text-align:center;color:var(--muted-fg);font-size:0.7rem;margin:1rem 0;letter-spacing:0.2em;">— OU —</div>
-
-      <p class="text-muted text-xs mb-2" style="letter-spacing:0.1em;">OPÇÃO 2 — INSERIR MANUALMENTE</p>
-
-      <div class="input-group mb-2">
-        <label class="input-label">NÚMERO DO PEDIDO (9 DÍGITOS)</label>
-        <div class="input-wrapper">
-          <span class="input-prefix">&gt;</span>
-          <input id="order-code" class="input" type="text" maxlength="9" placeholder="123456789" inputmode="numeric">
-        </div>
-        <div class="input-error-msg" id="code-err"></div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-        <div class="input-group">
-          <label class="input-label">CICLO</label>
+      <div id="order-details" style="display:none;">
+        <div class="input-group mb-2">
+          <label class="input-label">NÚMERO DO PEDIDO</label>
           <div class="input-wrapper">
-            <span class="input-prefix">&gt;</span>
-            <input id="order-cycle" class="input" type="text" placeholder="02/2026">
+            <span class="input-prefix">🔒</span>
+            <input id="order-code" class="input" type="text" readonly style="opacity:0.7;cursor:not-allowed;">
           </div>
         </div>
-        <div class="input-group">
-          <label class="input-label">QUANTIDADE DE ITENS</label>
-          <div class="input-wrapper">
-            <span class="input-prefix">&gt;</span>
-            <input id="order-items" class="input" type="number" min="1" placeholder="1" inputmode="numeric">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+          <div class="input-group">
+            <label class="input-label">CICLO</label>
+            <div class="input-wrapper">
+              <span class="input-prefix">🔒</span>
+              <input id="order-cycle" class="input" type="text" readonly style="opacity:0.7;cursor:not-allowed;">
+            </div>
           </div>
-          <div class="input-error-msg" id="items-err"></div>
+          <div class="input-group">
+            <label class="input-label">QUANTIDADE DE ITENS</label>
+            <div class="input-wrapper">
+              <span class="input-prefix">🔒</span>
+              <input id="order-items" class="input" type="text" readonly style="opacity:0.7;cursor:not-allowed;">
+            </div>
+          </div>
         </div>
       </div>
 
@@ -118,24 +113,18 @@ function showInput(page, state, unitId) {
   const dropArea = page.querySelector("#drop-area");
   const fileStatus = page.querySelector("#file-status");
   const fileErr = page.querySelector("#file-err");
+  const orderDetails = page.querySelector("#order-details");
   const codeInput = page.querySelector("#order-code");
-  const codeErr = page.querySelector("#code-err");
   const cycleInput = page.querySelector("#order-cycle");
   const itemsInput = page.querySelector("#order-items");
-  const itemsErr = page.querySelector("#items-err");
   const confirmBtn = page.querySelector("#confirm-btn");
-  let importedPdfOrder = null;
-
-  function checkReady() {
-    const c = codeInput.value.trim();
-    const i = parseInt(itemsInput.value, 10);
-    const validImportedPdf = importedPdfOrder && c === importedPdfOrder.code;
-    confirmBtn.disabled =
-      (!/^\d{9}$/.test(c) && !validImportedPdf) || isNaN(i) || i < 1;
-  }
+  let importedOrder = null;
 
   async function handleFile(file) {
     fileErr.textContent = "";
+    orderDetails.style.display = "none";
+    confirmBtn.disabled = true;
+    importedOrder = null;
     try {
       const result = await parseSpreadsheet(file);
       const { orders, skipped } = result;
@@ -149,7 +138,7 @@ function showInput(page, state, unitId) {
           orders.reduce((sum, order) => sum + (order.items || 0), 0);
         const isSingleOrderPdf = result.pdfType === "single-order";
         const code = isSingleOrderPdf ? result.orderCode : result.batchCode;
-        importedPdfOrder = {
+        importedOrder = {
           code,
           cycle: isSingleOrderPdf
             ? result.cycle ||
@@ -158,21 +147,24 @@ function showInput(page, state, unitId) {
           items: itemCount,
           importMeta: result,
         };
-        codeInput.value = importedPdfOrder.code;
-        cycleInput.value = importedPdfOrder.cycle;
-        itemsInput.value = importedPdfOrder.items;
         fileStatus.innerHTML = isSingleOrderPdf
           ? `✓ PDF: pedido <span class="text-accent">${result.orderCode}</span> importado, ${itemCount} itens.`
           : `✓ PDF: lote <span class="text-accent">${result.batchCode}</span> importado como avulso, ${itemCount} itens.`;
       } else {
-        importedPdfOrder = null;
         const o = orders[0];
-        codeInput.value = o.code;
-        cycleInput.value = o.cycle || "";
-        itemsInput.value = o.items || "";
+        importedOrder = {
+          code: o.code,
+          cycle: o.cycle || "",
+          items: o.items || 0,
+          importMeta: null,
+        };
         fileStatus.innerHTML = `✓ <span class="text-accent">${o.code}</span> importado.${skipped > 0 ? " " + skipped + " ignorados." : ""}`;
       }
-      checkReady();
+      codeInput.value = importedOrder.code;
+      cycleInput.value = importedOrder.cycle;
+      itemsInput.value = importedOrder.items;
+      orderDetails.style.display = "block";
+      confirmBtn.disabled = false;
     } catch (err) {
       fileErr.textContent = "> ERRO: " + err.message;
     }
@@ -194,28 +186,13 @@ function showInput(page, state, unitId) {
     if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
   });
 
-  codeInput.addEventListener("input", () => {
-    importedPdfOrder = null;
-    codeInput.value = codeInput.value.replace(/\D/g, "");
-    codeErr.textContent =
-      codeInput.value && !/^\d{9}$/.test(codeInput.value)
-        ? "> DEVE TER 9 DÍGITOS"
-        : "";
-    checkReady();
-  });
-  itemsInput.addEventListener("input", () => {
-    const v = parseInt(itemsInput.value, 10);
-    itemsErr.textContent =
-      itemsInput.value && (isNaN(v) || v < 1) ? "> MÍNIMO 1 ITEM" : "";
-    checkReady();
-  });
-
   confirmBtn.addEventListener("click", () => {
+    if (!importedOrder) return;
     state.order = {
-      code: codeInput.value.trim(),
-      cycle: cycleInput.value.trim(),
-      items: parseInt(itemsInput.value, 10),
-      importMeta: importedPdfOrder?.importMeta || null,
+      code: importedOrder.code,
+      cycle: importedOrder.cycle,
+      items: importedOrder.items,
+      importMeta: importedOrder.importMeta,
     };
     showSepChrono(page, state, unitId);
   });
