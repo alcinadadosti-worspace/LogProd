@@ -24,7 +24,7 @@ export async function renderOnlyBipper(container, params) {
   container.querySelector('#back-btn').addEventListener('click', () => navigate('/dashboard'));
 
   const page  = container.querySelector('#bip-page');
-  const state = { operator: null, orders: [], bippingOrders: [], batchCode: '', bipSeconds: 0, boxCodes: {}, config: null, importMeta: null };
+  const state = { operator: null, orders: [], bippingOrders: [], batchCode: '', singleOrder: null, bipSeconds: 0, boxCode: '', boxCodes: {}, config: null, importMeta: null };
 
   state.config   = await getGlobalConfig();
   state.operator = await selectOperator(unitId);
@@ -36,7 +36,7 @@ export async function renderOnlyBipper(container, params) {
 function showBatchSearch(page, state, unitId) {
   page.innerHTML = `
     <div class="card cyber-chamfer" style="max-width:600px;">
-      <div class="section-title mb-2">LOCALIZAR LOTE SEPARADO</div>
+      <div class="section-title mb-2">LOCALIZAR LOTE OU PEDIDO</div>
       <div class="text-muted text-xs mb-2" style="letter-spacing:0.1em;">
         OPERADOR: <span class="text-accent">${state.operator.name}</span>
       </div>
@@ -54,10 +54,25 @@ function showBatchSearch(page, state, unitId) {
         🔍 BUSCAR LOTE NO SISTEMA
       </button>
 
+      <div style="text-align:center;color:var(--muted-fg);font-size:0.7rem;margin:1rem 0;letter-spacing:0.2em;">--- OU ---</div>
+
+      <div class="input-group mb-2">
+        <label class="input-label">CODIGO DO PEDIDO (9 DIGITOS)</label>
+        <div class="input-wrapper">
+          <span class="input-prefix">&gt;</span>
+          <input id="order-input" class="input" type="text" maxlength="9" placeholder="123456789" inputmode="numeric">
+        </div>
+        <div class="input-error-msg" id="order-err"></div>
+      </div>
+
+      <button id="order-start" class="btn btn--secondary btn--full cyber-chamfer mb-3" disabled>
+        INICIAR BIPAGEM DO PEDIDO
+      </button>
+
       <div id="search-result" style="display:none;">
         <div id="found-info" class="text-accent text-sm mb-2"></div>
         <button id="use-found" class="btn btn--full cyber-chamfer mb-2" style="display:none;">
-          USAR ESTE LOTE → INICIAR BIPAGEM
+          USAR ESTE LOTE → INFORMAR PEDIDOS
         </button>
       </div>
 
@@ -74,7 +89,7 @@ function showBatchSearch(page, state, unitId) {
           <div id="file-status" class="text-xs text-muted mt-1"></div>
           <div id="file-err" class="input-error-msg mt-1"></div>
           <button id="manual-start" class="btn btn--secondary btn--full cyber-chamfer mt-2" disabled>
-            USAR ARQUIVO → INICIAR BIPAGEM
+            USAR ARQUIVO → INFORMAR PEDIDOS
           </button>
         </div>
       </details>
@@ -84,6 +99,9 @@ function showBatchSearch(page, state, unitId) {
   const batchInput  = page.querySelector('#batch-input');
   const batchErr    = page.querySelector('#batch-err');
   const searchBtn   = page.querySelector('#search-btn');
+  const orderInput  = page.querySelector('#order-input');
+  const orderErr    = page.querySelector('#order-err');
+  const orderStart  = page.querySelector('#order-start');
   const searchRes   = page.querySelector('#search-result');
   const foundInfo   = page.querySelector('#found-info');
   const useFound    = page.querySelector('#use-found');
@@ -96,12 +114,47 @@ function showBatchSearch(page, state, unitId) {
   let manualOrders = [];
 
   batchInput.addEventListener('input', () => {
-    const v = batchInput.value.trim();
+    const v = batchInput.value.replace(/\D/g, '');
+    batchInput.value = v;
+    if (v) {
+      orderInput.value = '';
+      orderErr.textContent = '';
+      orderStart.disabled = true;
+    }
     batchErr.textContent = v && !/^\d{8}$/.test(v) ? '> DEVE TER 8 DÍGITOS' : '';
     searchBtn.disabled   = !/^\d{8}$/.test(v);
     searchRes.style.display = 'none';
     useFound.style.display  = 'none';
     checkManual();
+  });
+
+  orderInput.addEventListener('input', () => {
+    const v = orderInput.value.replace(/\D/g, '');
+    orderInput.value = v;
+    if (v) {
+      batchInput.value = '';
+      batchInput.readOnly = false;
+      batchErr.textContent = '';
+      searchBtn.disabled = true;
+      searchRes.style.display = 'none';
+      useFound.style.display = 'none';
+      manualStart.disabled = true;
+    }
+    orderErr.textContent = v && !/^\d{9}$/.test(v) ? '> DEVE TER 9 DIGITOS' : '';
+    orderStart.disabled = !/^\d{9}$/.test(v);
+  });
+
+  orderInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !orderStart.disabled) orderStart.click(); });
+
+  orderStart.addEventListener('click', () => {
+    const orderCode = orderInput.value.trim();
+    if (!/^\d{9}$/.test(orderCode)) return;
+    state.batchCode = '';
+    state.orders = [];
+    state.bippingOrders = [];
+    state.importMeta = null;
+    state.singleOrder = { code: orderCode, cycle: '', items: 1 };
+    showSingleOrderBipping(page, state, unitId);
   });
 
   searchBtn.addEventListener('click', async () => {
@@ -148,12 +201,7 @@ function showBatchSearch(page, state, unitId) {
   });
 
   useFound.addEventListener('click', () => {
-    if (state.importMeta?.sourceType === 'pdf') {
-      showPdfOrderCount(page, state, unitId, () => showBatchSearch(page, state, unitId));
-    } else {
-      state.bippingOrders = [];
-      showBippingChrono(page, state, unitId);
-    }
+    showBatchOrderCount(page, state, unitId, () => showBatchSearch(page, state, unitId));
   });
 
   async function handleFile(file) {
@@ -162,6 +210,9 @@ function showBatchSearch(page, state, unitId) {
       if (result.sourceType === 'pdf' && result.pdfType !== 'batch') {
         throw new Error('Este PDF e de pedido avulso. Use a opcao PEDIDO AVULSO.');
       }
+      orderInput.value = '';
+      orderErr.textContent = '';
+      orderStart.disabled = true;
       const { orders, skipped } = result;
       manualOrders = orders;
       state.importMeta = result.sourceType === 'pdf' ? result : null;
@@ -192,16 +243,11 @@ function showBatchSearch(page, state, unitId) {
   manualStart.addEventListener('click', () => {
     state.batchCode = batchInput.value.trim();
     state.orders    = manualOrders;
-    if (state.importMeta?.sourceType === 'pdf') {
-      showPdfOrderCount(page, state, unitId, () => showBatchSearch(page, state, unitId));
-    } else {
-      state.bippingOrders = [];
-      showBippingChrono(page, state, unitId);
-    }
+    showBatchOrderCount(page, state, unitId, () => showBatchSearch(page, state, unitId));
   });
 }
 
-function buildPdfBippingOrders(count) {
+function buildBippingOrders(count) {
   return Array.from({ length: count }, (_, index) => {
     const number = String(index + 1).padStart(2, '0');
     return {
@@ -209,7 +255,7 @@ function buildPdfBippingOrders(count) {
       cycle: '',
       approvedAt: null,
       items: 0,
-      sourceType: 'pdf-bipping-order',
+      sourceType: 'batch-bipping-order',
     };
   });
 }
@@ -218,7 +264,7 @@ function getBippingOrders(state) {
   return state.bippingOrders?.length ? state.bippingOrders : state.orders;
 }
 
-function showPdfOrderCount(page, state, unitId, onBack) {
+function showBatchOrderCount(page, state, unitId, onBack) {
   page.innerHTML = `
     <div class="card cyber-chamfer" style="max-width:520px;">
       <div class="section-title mb-2">QUANTIDADE DE PEDIDOS DO LOTE</div>
@@ -259,7 +305,7 @@ function showPdfOrderCount(page, state, unitId, onBack) {
   continueBtn.addEventListener('click', () => {
     const count = parseInt(input.value, 10);
     if (!Number.isInteger(count) || count < 1 || count > 999) return;
-    state.bippingOrders = buildPdfBippingOrders(count);
+    state.bippingOrders = buildBippingOrders(count);
     showBippingChrono(page, state, unitId);
   });
 }
@@ -267,6 +313,7 @@ function showPdfOrderCount(page, state, unitId, onBack) {
 function showBippingChrono(page, state, unitId) {
   const bippingOrders = getBippingOrders(state);
   const isPdfBipping = state.importMeta?.sourceType === 'pdf';
+  const showBatchColumn = isPdfBipping || state.bippingOrders?.length > 0;
   const lockedMap = {};
   const chrono = new Chronometer(sec => {
     const el = page.querySelector('#chrono-bip');
@@ -290,15 +337,15 @@ function showBippingChrono(page, state, unitId) {
         <div style="padding:0.5rem 1rem;border-bottom:1px solid var(--border);display:flex;
                     justify-content:space-between;font-size:0.65rem;font-family:var(--font-terminal);
                     color:var(--muted-fg);letter-spacing:0.15em;">
-          <span>PEDIDO</span><span>${isPdfBipping ? 'LOTE' : 'CICLO'}</span><span>${isPdfBipping ? 'CAIXA' : 'ITENS'}</span>
+          <span>PEDIDO</span><span>${showBatchColumn ? 'LOTE' : 'CICLO'}</span><span>${showBatchColumn ? 'CAIXA' : 'ITENS'}</span>
           <span>CÓD. CAIXA (10 DIG.)</span><span>STATUS</span>
         </div>
         <div id="bip-list">
           ${bippingOrders.map(o => `
             <div class="order-item" id="row-${o.code}">
               <span class="order-code">${o.code}</span>
-              <span class="order-cycle">${isPdfBipping ? state.batchCode : o.cycle}</span>
-              <span class="order-items">${isPdfBipping ? '-' : o.items}</span>
+              <span class="order-cycle">${showBatchColumn ? state.batchCode : o.cycle}</span>
+              <span class="order-items">${showBatchColumn ? '-' : o.items}</span>
               <input type="text" class="order-box-input" maxlength="10"
                      placeholder="0000000000" data-order="${o.code}" inputmode="numeric">
               <span class="order-status pending" id="status-${o.code}">PENDENTE</span>
@@ -370,6 +417,136 @@ function showBippingChrono(page, state, unitId) {
   return () => chrono.stop();
 }
 
+function showSingleOrderBipping(page, state, unitId) {
+  const chrono = new Chronometer(sec => {
+    const el = page.querySelector('#chrono-bip');
+    if (el) el.textContent = Chronometer.format(sec);
+  });
+
+  page.innerHTML = `
+    <div style="max-width:500px;margin:0 auto;text-align:center;">
+      <div class="section-title mb-2">BIPAGEM / LACRACAO</div>
+      <div class="text-muted text-xs mb-3 cursor">PEDIDO ${state.singleOrder.code}</div>
+
+      <div class="card cyber-chamfer" style="padding:2rem;">
+        <div class="chrono-label mb-1">TEMPO DE BIPAGEM</div>
+        <div class="chrono-display" id="chrono-bip" style="font-size:2.5rem;">00:00:00</div>
+      </div>
+
+      <div class="card cyber-chamfer mt-2" style="text-align:left;">
+        <div class="input-group">
+          <label class="input-label">CODIGO DA CAIXA (10 DIGITOS)</label>
+          <div class="input-wrapper">
+            <span class="input-prefix">&gt;</span>
+            <input id="box-code" class="input" type="text" maxlength="10" placeholder="0000000000" inputmode="numeric" autofocus>
+          </div>
+          <div class="input-error-msg" id="box-err"></div>
+        </div>
+        <button id="validate-box" class="btn btn--full cyber-chamfer mt-2" disabled>
+          VALIDAR CAIXA
+        </button>
+      </div>
+    </div>
+  `;
+
+  const boxInput = page.querySelector('#box-code');
+  const boxErr = page.querySelector('#box-err');
+  const validateBtn = page.querySelector('#validate-box');
+  const bipStart = new Date();
+  let isFinishing = false;
+
+  chrono.start();
+  playStart();
+
+  async function finishBipping() {
+    if (isFinishing || !/^\d{10}$/.test(boxInput.value)) return;
+    isFinishing = true;
+    validateBtn.disabled = true;
+    boxInput.disabled = true;
+    chrono.stop();
+    playConfirm();
+    state.bipSeconds = chrono.getSeconds();
+    state.bipStart = bipStart;
+    state.bipEnd = new Date();
+    state.boxCode = boxInput.value.trim();
+    await saveSingleOrderBipping(page, state, unitId);
+  }
+
+  boxInput.addEventListener('input', () => {
+    boxInput.value = boxInput.value.replace(/\D/g, '');
+    boxErr.textContent = boxInput.value && !/^\d{10}$/.test(boxInput.value) ? '> DEVE TER 10 DIGITOS' : '';
+    validateBtn.disabled = !/^\d{10}$/.test(boxInput.value);
+    finishBipping();
+  });
+
+  boxInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !validateBtn.disabled) finishBipping(); });
+  validateBtn.addEventListener('click', finishBipping);
+
+  return () => chrono.stop();
+}
+
+async function saveSingleOrderBipping(page, state, unitId) {
+  page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
+
+  const items = state.singleOrder.items || 1;
+  const xpResult = xpBatch({ orders: 1, items, seconds: state.bipSeconds, config: state.config });
+
+  const eventData = {
+    unitId,
+    stockistId: state.operator.id,
+    type: 'SINGLE_ORDER',
+    xp: xpResult.total,
+    singleOrder: {
+      orderCode: state.singleOrder.code,
+      cycle: state.singleOrder.cycle || '',
+      items,
+      importMeta: null,
+      separationSeconds: null,
+      bippingSeconds: state.bipSeconds,
+      boxCode: state.boxCode,
+    },
+  };
+
+  try { await createEvent(eventData); }
+  catch {
+    try {
+      saveEventLocally(eventData);
+      document.getElementById('sync-banner')?.classList.add('visible');
+    } catch {
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">ERRO AO SALVAR</div>
+          <div class="text-muted mt-2">Sem conexao e armazenamento local cheio.<br>Registre o pedido manualmente.</div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+      return;
+    }
+  }
+
+  const xpEl = (() => {
+    page.innerHTML = `
+      <div style="max-width:500px;margin:0 auto;">
+        <div class="xp-summary cyber-chamfer-lg fade-in">
+          <div class="xp-label">XP GANHO - BIPAGEM PEDIDO</div>
+          <span class="xp-value" id="xp-count">0</span>
+          ${xpResult.bonusPct > 0 ? `<div class="xp-bonus-tag">+${(xpResult.bonusPct*100).toFixed(0)}% BONUS</div>` : ''}
+        </div>
+        <div class="card cyber-chamfer mt-2">
+          <div class="stat-row"><span class="stat-label">PEDIDO</span><span class="stat-value text-accent">${state.singleOrder.code}</span></div>
+          <div class="stat-row"><span class="stat-label">CAIXA</span><span class="stat-value">${state.boxCode}</span></div>
+          <div class="stat-row"><span class="stat-label">TEMPO BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>
+          <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} itens/min</span></div>
+        </div>
+        <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+      </div>`;
+    return page.querySelector('#xp-count');
+  })();
+
+  playComplete();
+  let cur = 0; const target = xpResult.total; const step = Math.ceil(target / 60);
+  const t = setInterval(() => { cur = Math.min(cur + step, target); xpEl.textContent = cur.toLocaleString('pt-BR'); if (cur >= target) { clearInterval(t); playXP(); } }, 25);
+}
+
 function serializeOrder(o) {
   return {
     code: o.code,
@@ -411,9 +588,9 @@ async function save(page, state, unitId) {
 
   const totalItems = state.orders.reduce((s, o) => s + (o.items || 0), 0);
   const bippingOrders = getBippingOrders(state);
-  const orderCount = state.importMeta?.sourceType === 'pdf' ? bippingOrders.length : state.orders.length;
+  const orderCount = state.bippingOrders?.length ? bippingOrders.length : state.orders.length;
   const xpResult   = xpBatch({ orders: orderCount, items: totalItems, seconds: state.bipSeconds, config: state.config });
-  const countLabel = state.importMeta?.sourceType === 'pdf' ? 'PEDIDOS BIPADOS' : 'PEDIDOS';
+  const countLabel = state.bippingOrders?.length ? 'PEDIDOS BIPADOS' : 'PEDIDOS';
 
   const eventData = {
     unitId, stockistId: state.operator.id,
