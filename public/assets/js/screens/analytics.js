@@ -714,21 +714,28 @@ export async function renderAnalytics(container, params) {
         ${kpi("⏱ TEMPO MÉDIO/LOTE", fmtTime(avgBatchTime), C.purple)}
       </div>
 
-      <!-- Mapa de calor de cidades -->
+      ${
+        isAdmin
+          ? `
+      <!-- Mapa de calor de cidades (somente admin) -->
       <div class="card cyber-chamfer mb-2">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
           <div class="section-title">🗺 MAPA DE CALOR — CIDADES ATENDIDAS</div>
           <div style="display:flex;gap:1rem;font-size:0.62rem;font-family:var(--font-terminal);color:var(--muted-fg);">
             <span style="color:#6d28d9;">● Sem pedidos</span>
-            <span style="color:#059669;">● Poucos</span>
-            <span style="color:#f59e0b;">● Médio</span>
-            <span style="color:#dc2626;">● Alto</span>
+            <span style="color:#1d4ed8;">● Baixo</span>
+            <span style="color:#059669;">● Médio</span>
+            <span style="color:#f59e0b;">● Alto</span>
+            <span style="color:#dc2626;">● Pico</span>
           </div>
         </div>
-        <div class="text-muted text-xs mb-2">Clique em um círculo para ver a cidade e a quantidade de pedidos separados</div>
-        <div id="city-heatmap" style="height:420px;border-radius:4px;overflow:hidden;"></div>
-        ${!hasCityData ? '<div class="text-muted text-xs mt-2 text-center">Nenhum lote com cidade registrada no período. A seleção de cidade é feita no momento da separação.</div>' : ""}
+        <div class="text-muted text-xs mb-2">Passe o mouse sobre um município para ver o resumo. <strong>Clique</strong> para ver pedidos, itens e top operador.</div>
+        <div id="city-heatmap" style="height:440px;border-radius:4px;overflow:hidden;"></div>
+        ${!hasCityData ? '<div class="text-muted text-xs mt-2 text-center">Nenhum lote ou pedido com cidade registrada no período. A seleção de cidade é feita no momento da separação.</div>' : ""}
       </div>
+      `
+          : ""
+      }
 
       <div class="grid-2 mb-2">
         <div class="card cyber-chamfer">
@@ -1115,13 +1122,13 @@ export async function renderAnalytics(container, params) {
       </div>
     `;
 
-    // ── City heat map (Leaflet choropleth) ──────────────────────────────────────
+    // ── City heat map (Leaflet choropleth, somente admin) ─────────────────────
     if (_leafletMap) {
       _leafletMap.remove();
       _leafletMap = null;
     }
     const mapEl = document.getElementById("city-heatmap");
-    if (mapEl && typeof L !== "undefined") {
+    if (isAdmin && mapEl && typeof L !== "undefined") {
       _leafletMap = L.map(mapEl, {
         zoomControl: true,
         attributionControl: false,
