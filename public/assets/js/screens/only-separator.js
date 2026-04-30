@@ -81,6 +81,9 @@ function showUpload(page, state, unitId) {
     fileStatus.textContent = 'Processando...';
     try {
       const result = await parseSpreadsheet(file);
+      if (result.sourceType === 'pdf' && result.pdfType !== 'batch') {
+        throw new Error('Este PDF e de pedido avulso. Use a opcao PEDIDO AVULSO.');
+      }
       const { orders, skipped } = result;
       parsedOrders = orders;
       state.importMeta = result.sourceType === 'pdf' ? result : null;
@@ -214,10 +217,16 @@ function serializeImportMeta(meta) {
   if (meta?.sourceType !== 'pdf') return null;
   return {
     sourceType: 'pdf',
+    pdfType: meta.pdfType || 'batch',
     batchCode: meta.batchCode,
+    orderCode: meta.orderCode || null,
+    separationBatchCode: meta.separationBatchCode || null,
     exportedDate: meta.exportedDate,
     exportedTime: meta.exportedTime,
     exportedAt: meta.exportedAt?.toISOString ? meta.exportedAt.toISOString() : (meta.exportedAt || null),
+    orderDate: meta.orderDate || null,
+    cycle: meta.cycle || null,
+    declaredItems: meta.declaredItems || null,
     totalItems: meta.totalItems,
     unaddressedItems: meta.unaddressedItems,
     unaddressedRows: meta.unaddressedRows,

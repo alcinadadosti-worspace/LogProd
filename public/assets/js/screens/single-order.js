@@ -114,16 +114,22 @@ function showInput(page, state, unitId) {
       if (orders.length === 0) { fileErr.textContent = '> Nenhum pedido válido encontrado.'; return; }
       if (result.sourceType === 'pdf') {
         const itemCount = result.totalItems || orders.reduce((sum, order) => sum + (order.items || 0), 0);
+        const isSingleOrderPdf = result.pdfType === 'single-order';
+        const code = isSingleOrderPdf ? result.orderCode : result.batchCode;
         importedPdfOrder = {
-          code: result.batchCode,
-          cycle: `${result.exportedDate || ''}${result.exportedTime ? ' ' + result.exportedTime : ''}`.trim(),
+          code,
+          cycle: isSingleOrderPdf
+            ? (result.cycle || `${result.exportedDate || ''}${result.exportedTime ? ' ' + result.exportedTime : ''}`.trim())
+            : `${result.exportedDate || ''}${result.exportedTime ? ' ' + result.exportedTime : ''}`.trim(),
           items: itemCount,
           importMeta: result,
         };
         codeInput.value  = importedPdfOrder.code;
         cycleInput.value = importedPdfOrder.cycle;
         itemsInput.value = importedPdfOrder.items;
-        fileStatus.innerHTML = `✓ PDF: lote <span class="text-accent">${result.batchCode}</span> importado como avulso, ${itemCount} itens.`;
+        fileStatus.innerHTML = isSingleOrderPdf
+          ? `✓ PDF: pedido <span class="text-accent">${result.orderCode}</span> importado, ${itemCount} itens.`
+          : `✓ PDF: lote <span class="text-accent">${result.batchCode}</span> importado como avulso, ${itemCount} itens.`;
       } else {
         importedPdfOrder = null;
         const o = orders[0];
@@ -283,10 +289,16 @@ function serializeImportMeta(meta) {
   if (meta?.sourceType !== 'pdf') return null;
   return {
     sourceType: 'pdf',
+    pdfType: meta.pdfType || 'batch',
     batchCode: meta.batchCode,
+    orderCode: meta.orderCode || null,
+    separationBatchCode: meta.separationBatchCode || null,
     exportedDate: meta.exportedDate,
     exportedTime: meta.exportedTime,
     exportedAt: meta.exportedAt?.toISOString ? meta.exportedAt.toISOString() : (meta.exportedAt || null),
+    orderDate: meta.orderDate || null,
+    cycle: meta.cycle || null,
+    declaredItems: meta.declaredItems || null,
     totalItems: meta.totalItems,
     unaddressedItems: meta.unaddressedItems,
     unaddressedRows: meta.unaddressedRows,

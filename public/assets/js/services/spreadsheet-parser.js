@@ -93,22 +93,41 @@ function groupTextItemsIntoLines(items) {
 
 function parsePdfHeader(lines) {
   let batchCode = '';
+  let orderCode = '';
+  let separationBatchCode = '';
   let exportedDate = '';
   let exportedTime = '';
+  let orderDate = '';
+  let cycle = '';
+  let declaredItems = null;
+  let pdfType = 'batch';
 
   for (const line of lines) {
     const normalized = normalizeSearch(line);
     const batchMatch = normalized.match(/(?:numero|n.mero|nmero) do lote:\s*(\d+)/);
+    const orderMatch = normalized.match(/(?:numero|n.mero|nmero) do pedido:\s*(\d+)/);
+    const separationBatchMatch = normalized.match(/(?:numero|n.mero|nmero) do lote de separa.*?:\s*(\d+)/);
     const dateMatch = normalized.match(/data:\s*(\d{2}\/\d{2}\/\d{4})/);
     const timeMatch = normalized.match(/hora:\s*(\d{2}:\d{2})/);
+    const orderDateMatch = normalized.match(/data do pedido:\s*(\d{2}\/\d{2}\/\d{4})/);
+    const cycleMatch = normalized.match(/ciclo:\s*([^\s]+)\b/);
+    const declaredItemsMatch = normalized.match(/quantidade de itens:\s*(\d+)/);
 
     if (batchMatch) batchCode = batchMatch[1];
+    if (orderMatch) {
+      orderCode = orderMatch[1];
+      pdfType = 'single-order';
+    }
+    if (separationBatchMatch) separationBatchCode = separationBatchMatch[1];
     if (dateMatch) exportedDate = dateMatch[1];
     if (timeMatch) exportedTime = timeMatch[1];
+    if (orderDateMatch) orderDate = orderDateMatch[1];
+    if (cycleMatch) cycle = cycleMatch[1];
+    if (declaredItemsMatch) declaredItems = parseInt(declaredItemsMatch[1], 10);
   }
 
   const exportedAt = parseBRDate(`${exportedDate}${exportedTime ? ` ${exportedTime}` : ''}`);
-  return { batchCode, exportedDate, exportedTime, exportedAt };
+  return { pdfType, batchCode, orderCode, separationBatchCode, exportedDate, exportedTime, exportedAt, orderDate, cycle, declaredItems };
 }
 
 function parsePickingListLines(lines) {
@@ -121,6 +140,10 @@ function parsePickingListLines(lines) {
   for (const line of lines) {
     const normalized = normalizeSearch(line);
     if (!normalized) continue;
+    if (normalized.startsWith('sugestao')) {
+      section = null;
+      continue;
+    }
 
     if (
       normalized.startsWith('materiais nao enderecados') ||
@@ -141,6 +164,7 @@ function parsePickingListLines(lines) {
     const totalMatch = normalized.match(/^total\s+(\d+)/);
     if (totalMatch) {
       sectionTotals[section] = parseInt(totalMatch[1], 10);
+      section = null;
       continue;
     }
 
@@ -171,11 +195,19 @@ function parsePickingListLines(lines) {
       }
     }
 
+    if (section && items.length > 0) {
+      items[items.length - 1].description = `${items[items.length - 1].description} ${line.trim()}`.trim();
+      continue;
+    }
+
     skipped++;
   }
 
-  if (!header.batchCode) {
+  if (header.pdfType === 'batch' && !header.batchCode) {
     throw new Error('Numero do lote nao encontrado no PDF');
+  }
+  if (header.pdfType === 'single-order' && !header.orderCode) {
+    throw new Error('Numero do pedido nao encontrado no PDF');
   }
   if (items.length === 0) {
     throw new Error('Nenhum material encontrado no PDF');
@@ -185,7 +217,7 @@ function parsePickingListLines(lines) {
   const sectionTotalSum = Object.values(sectionTotals)
     .filter(v => Number.isFinite(v))
     .reduce((sum, value) => sum + value, 0);
-  const totalItems = sectionTotalSum || summedItems;
+  const totalItems = header.declaredItems || sectionTotalSum || summedItems;
   const unaddressedItems = items
     .filter(item => !item.addressed)
     .reduce((sum, item) => sum + item.quantity, 0);
@@ -207,10 +239,16 @@ function parsePickingListLines(lines) {
     orders,
     skipped,
     sourceType: 'pdf',
+    pdfType: header.pdfType,
     batchCode: header.batchCode,
+    orderCode: header.orderCode,
+    separationBatchCode: header.separationBatchCode,
     exportedDate: header.exportedDate,
     exportedTime: header.exportedTime,
     exportedAt: header.exportedAt,
+    orderDate: header.orderDate,
+    cycle: header.cycle,
+    declaredItems: header.declaredItems,
     items,
     totalItems,
     unaddressedItems,
