@@ -24,7 +24,7 @@ export async function renderOnlyBipper(container, params) {
   container.querySelector('#back-btn').addEventListener('click', () => navigate('/dashboard'));
 
   const page  = container.querySelector('#bip-page');
-  const state = { operator: null, orders: [], batchCode: '', bipSeconds: 0, boxCodes: {}, config: null };
+  const state = { operator: null, orders: [], batchCode: '', bipSeconds: 0, boxCodes: {}, config: null, importMeta: null };
 
   state.config   = await getGlobalConfig();
   state.operator = await selectOperator(unitId);
@@ -63,18 +63,18 @@ function showBatchSearch(page, state, unitId) {
 
       <details style="margin-top:1rem;">
         <summary class="text-muted text-xs" style="cursor:pointer;letter-spacing:0.15em;">
-          LOTE NÃO ENCONTRADO? IMPORTAR PLANILHA MANUALMENTE
+          LOTE NÃO ENCONTRADO? IMPORTAR PLANILHA OU PDF MANUALMENTE
         </summary>
         <div style="margin-top:1rem;">
           <div class="file-upload-area cyber-chamfer mt-1" id="drop-area">
-            <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
+            <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf,application/pdf">
             <div class="file-upload-icon">📂</div>
-            <div class="file-upload-text">Arraste ou clique para selecionar a planilha</div>
+            <div class="file-upload-text">Arraste ou clique para selecionar planilha ou PDF</div>
           </div>
           <div id="file-status" class="text-xs text-muted mt-1"></div>
           <div id="file-err" class="input-error-msg mt-1"></div>
           <button id="manual-start" class="btn btn--secondary btn--full cyber-chamfer mt-2" disabled>
-            USAR PLANILHA → INICIAR BIPAGEM
+            USAR ARQUIVO → INICIAR BIPAGEM
           </button>
         </div>
       </details>
@@ -116,12 +116,25 @@ function showBatchSearch(page, state, unitId) {
       const ev = await findSeparationBatch(unitId, bc);
       if (ev) {
         const orders = ev.batch?.orders || [];
+        const importMeta = ev.batch?.importMeta || null;
         foundInfo.innerHTML = `
           ✓ Lote <span class="text-accent">${bc}</span> encontrado —
-          ${orders.length} pedidos, ${ev.batch?.totalItems} itens
+          ${orders.length} ${importMeta?.sourceType === 'pdf' ? 'materiais' : 'pedidos'}, ${ev.batch?.totalItems} itens
         `;
         state.batchCode = bc;
-        state.orders    = orders.map(o => ({ code: o.code, cycle: o.cycle, items: o.items, approvedAt: o.approvedAt ? new Date(o.approvedAt) : null }));
+        state.orders    = orders.map(o => ({
+          code: o.code,
+          cycle: o.cycle,
+          items: o.items,
+          approvedAt: o.approvedAt ? new Date(o.approvedAt) : null,
+          sourceType: o.sourceType || 'spreadsheet',
+          material: o.material || null,
+          sku: o.sku || o.material || null,
+          description: o.description || null,
+          address: o.address || null,
+          addressed: typeof o.addressed === 'boolean' ? o.addressed : null,
+        }));
+        state.importMeta = importMeta;
         useFound.style.display = 'block';
       } else {
         foundInfo.innerHTML = `<span class="text-destructive">✗ Lote ${bc} não encontrado como separação salva.</span>`;
@@ -138,9 +151,20 @@ function showBatchSearch(page, state, unitId) {
 
   async function handleFile(file) {
     try {
-      const { orders, skipped } = await parseSpreadsheet(file);
+      const result = await parseSpreadsheet(file);
+      const { orders, skipped } = result;
       manualOrders = orders;
-      fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>.${skipped ? ' ' + skipped + ' ignorados.' : ''}`;
+      state.importMeta = result.sourceType === 'pdf' ? result : null;
+      if (result.sourceType === 'pdf') {
+        batchInput.value = result.batchCode;
+        batchInput.readOnly = true;
+        batchErr.textContent = '';
+        fileStatus.innerHTML = `✓ PDF: lote <span class="text-accent">${result.batchCode}</span>, <span class="text-accent">${orders.length} materiais</span>, ${result.totalItems} itens. ${result.unaddressedItems > 0 ? result.unaddressedItems + ' sem endereco.' : ''}`;
+      } else {
+        batchInput.value = '';
+        batchInput.readOnly = false;
+        fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>.${skipped ? ' ' + skipped + ' ignorados.' : ''}`;
+      }
       checkManual();
     } catch (err) { fileErr.textContent = '> ERRO: ' + err.message; }
   }
@@ -186,7 +210,7 @@ function showBippingChrono(page, state, unitId) {
         <div style="padding:0.5rem 1rem;border-bottom:1px solid var(--border);display:flex;
                     justify-content:space-between;font-size:0.65rem;font-family:var(--font-terminal);
                     color:var(--muted-fg);letter-spacing:0.15em;">
-          <span>PEDIDO</span><span>CICLO</span><span>ITENS</span>
+          <span>${state.importMeta?.sourceType === 'pdf' ? 'SKU' : 'PEDIDO'}</span><span>${state.importMeta?.sourceType === 'pdf' ? 'ENDERECO' : 'CICLO'}</span><span>ITENS</span>
           <span>CÓD. CAIXA (10 DIG.)</span><span>STATUS</span>
         </div>
         <div id="bip-list">
@@ -258,18 +282,50 @@ function showBippingChrono(page, state, unitId) {
   return () => chrono.stop();
 }
 
+function serializeOrder(o) {
+  return {
+    code: o.code,
+    cycle: o.cycle || '',
+    approvedAt: o.approvedAt?.toISOString?.() ?? null,
+    items: o.items,
+    sourceType: o.sourceType || 'spreadsheet',
+    material: o.material || null,
+    sku: o.sku || o.material || null,
+    description: o.description || null,
+    address: o.address || null,
+    addressed: typeof o.addressed === 'boolean' ? o.addressed : null,
+  };
+}
+
+function serializeImportMeta(meta) {
+  if (meta?.sourceType !== 'pdf') return null;
+  return {
+    sourceType: 'pdf',
+    batchCode: meta.batchCode,
+    exportedDate: meta.exportedDate,
+    exportedTime: meta.exportedTime,
+    exportedAt: meta.exportedAt?.toISOString ? meta.exportedAt.toISOString() : (meta.exportedAt || null),
+    totalItems: meta.totalItems,
+    unaddressedItems: meta.unaddressedItems,
+    unaddressedRows: meta.unaddressedRows,
+    sectionTotals: meta.sectionTotals,
+  };
+}
+
 async function save(page, state, unitId) {
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
 
   const totalItems = state.orders.reduce((s, o) => s + (o.items || 0), 0);
   const xpResult   = xpBatch({ orders: state.orders.length, items: totalItems, seconds: state.bipSeconds, config: state.config });
+  const countLabel = state.importMeta?.sourceType === 'pdf' ? 'MATERIAIS' : 'PEDIDOS';
 
   const eventData = {
     unitId, stockistId: state.operator.id,
     type: 'ONLY_BIPPING', xp: xpResult.total,
     batch: {
       batchCode: state.batchCode,
-      orders: state.orders.map(o => ({ code: o.code, cycle: o.cycle || '', approvedAt: o.approvedAt?.toISOString?.() ?? null, items: o.items })),
+      orders: state.orders.map(serializeOrder),
+      importMeta: serializeImportMeta(state.importMeta),
       totalOrders: state.orders.length, totalItems,
       separationSeconds: null, separationStartedAt: null, separationFinishedAt: null,
       bippingStartedAt: state.bipStart.toISOString(),
@@ -307,7 +363,7 @@ async function save(page, state, unitId) {
         </div>
         <div class="card cyber-chamfer mt-2">
           <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
-          <div class="stat-row"><span class="stat-label">PEDIDOS</span><span class="stat-value">${state.orders.length}</span></div>
+          <div class="stat-row"><span class="stat-label">${countLabel}</span><span class="stat-value">${state.orders.length}</span></div>
           <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value">${totalItems}</span></div>
           <div class="stat-row"><span class="stat-label">TEMPO BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>
           <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} itens/min</span></div>

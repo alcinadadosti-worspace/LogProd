@@ -1,9 +1,9 @@
-/** Normaliza nome de coluna: minúsculas, sem acentos, sem espaços extras */
+/** Normaliza nome de coluna: minusculas, sem acentos, sem espacos extras */
 function normalizeKey(str) {
-  return str
+  return String(str ?? '')
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .trim();
 }
 
@@ -22,21 +22,227 @@ function findColumn(headers, aliases) {
   return -1;
 }
 
-/** Parse DD/MM/YYYY or DD/MM/YYYY HH:mm:ss */
+/** Parse DD/MM/YYYY, DD/MM/YYYY HH:mm or DD/MM/YYYY HH:mm:ss */
 function parseBRDate(str) {
   if (!str) return null;
   const s = String(str).trim();
-  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?$/);
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
   if (!m) return null;
   const [, d, mo, y, h = '00', mi = '00', se = '00'] = m;
   return new Date(`${y}-${mo}-${d}T${h}:${mi}:${se}`);
 }
 
+function isPdfFile(file) {
+  return file?.type === 'application/pdf' || /\.pdf$/i.test(file?.name || '');
+}
+
+async function loadPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+
+  try {
+    const pdfjs = await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs');
+    if (pdfjs.GlobalWorkerOptions && !pdfjs.GlobalWorkerOptions.workerSrc) {
+      pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+    }
+    return pdfjs;
+  } catch {
+    throw new Error('Nao foi possivel carregar o leitor de PDF. Verifique a conexao e tente novamente.');
+  }
+}
+
+function normalizeSearch(str) {
+  return String(str ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function groupTextItemsIntoLines(items) {
+  const words = items
+    .filter(item => String(item.str || '').trim())
+    .map(item => ({
+      text: String(item.str).trim(),
+      x: item.transform?.[4] ?? 0,
+      y: item.transform?.[5] ?? 0,
+    }))
+    .sort((a, b) => Math.abs(b.y - a.y) > 2 ? b.y - a.y : a.x - b.x);
+
+  const grouped = [];
+  for (const word of words) {
+    const line = grouped.find(l => Math.abs(l.y - word.y) <= 2);
+    if (line) {
+      line.words.push(word);
+      line.y = (line.y + word.y) / 2;
+    } else {
+      grouped.push({ y: word.y, words: [word] });
+    }
+  }
+
+  return grouped
+    .sort((a, b) => b.y - a.y)
+    .map(line => line.words
+      .sort((a, b) => a.x - b.x)
+      .map(word => word.text)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim())
+    .filter(Boolean);
+}
+
+function parsePdfHeader(lines) {
+  let batchCode = '';
+  let exportedDate = '';
+  let exportedTime = '';
+
+  for (const line of lines) {
+    const normalized = normalizeSearch(line);
+    const batchMatch = normalized.match(/(?:numero|n.mero|nmero) do lote:\s*(\d+)/);
+    const dateMatch = normalized.match(/data:\s*(\d{2}\/\d{2}\/\d{4})/);
+    const timeMatch = normalized.match(/hora:\s*(\d{2}:\d{2})/);
+
+    if (batchMatch) batchCode = batchMatch[1];
+    if (dateMatch) exportedDate = dateMatch[1];
+    if (timeMatch) exportedTime = timeMatch[1];
+  }
+
+  const exportedAt = parseBRDate(`${exportedDate}${exportedTime ? ` ${exportedTime}` : ''}`);
+  return { batchCode, exportedDate, exportedTime, exportedAt };
+}
+
+function parsePickingListLines(lines) {
+  const header = parsePdfHeader(lines);
+  const items = [];
+  const sectionTotals = { addressed: null, unaddressed: null };
+  let section = null;
+  let skipped = 0;
+
+  for (const line of lines) {
+    const normalized = normalizeSearch(line);
+    if (!normalized) continue;
+
+    if (
+      normalized.startsWith('materiais nao enderecados') ||
+      /^materiais n.?o enderecados/.test(normalized) ||
+      (normalized.startsWith('materiais n') && normalized.includes('endere'))
+    ) {
+      section = 'unaddressed';
+      continue;
+    }
+    if (normalized === 'materiais') {
+      section = 'addressed';
+      continue;
+    }
+    if (!section || normalized.startsWith('estacao / rack / coluna / linha')) {
+      continue;
+    }
+
+    const totalMatch = normalized.match(/^total\s+(\d+)/);
+    if (totalMatch) {
+      sectionTotals[section] = parseInt(totalMatch[1], 10);
+      continue;
+    }
+
+    let match;
+    if (section === 'addressed') {
+      match = line.match(/^(.+?)\s+(\d+)\s+(\d{4,})\s+(.+)$/);
+      if (match) {
+        items.push({
+          address: match[1].trim(),
+          quantity: parseInt(match[2], 10),
+          material: match[3].trim(),
+          description: match[4].trim(),
+          addressed: true,
+        });
+        continue;
+      }
+    } else {
+      match = line.match(/^(\d+)\s+(\d{4,})\s+(.+)$/);
+      if (match) {
+        items.push({
+          address: '',
+          quantity: parseInt(match[1], 10),
+          material: match[2].trim(),
+          description: match[3].trim(),
+          addressed: false,
+        });
+        continue;
+      }
+    }
+
+    skipped++;
+  }
+
+  if (!header.batchCode) {
+    throw new Error('Numero do lote nao encontrado no PDF');
+  }
+  if (items.length === 0) {
+    throw new Error('Nenhum material encontrado no PDF');
+  }
+
+  const summedItems = items.reduce((sum, item) => sum + item.quantity, 0);
+  const sectionTotalSum = Object.values(sectionTotals)
+    .filter(v => Number.isFinite(v))
+    .reduce((sum, value) => sum + value, 0);
+  const totalItems = sectionTotalSum || summedItems;
+  const unaddressedItems = items
+    .filter(item => !item.addressed)
+    .reduce((sum, item) => sum + item.quantity, 0);
+
+  const orders = items.map(item => ({
+    code: item.material,
+    cycle: item.address || 'SEM ENDERECO',
+    approvedAt: header.exportedAt,
+    items: item.quantity,
+    sourceType: 'pdf',
+    material: item.material,
+    sku: item.material,
+    description: item.description,
+    address: item.address,
+    addressed: item.addressed,
+  }));
+
+  return {
+    orders,
+    skipped,
+    sourceType: 'pdf',
+    batchCode: header.batchCode,
+    exportedDate: header.exportedDate,
+    exportedTime: header.exportedTime,
+    exportedAt: header.exportedAt,
+    items,
+    totalItems,
+    unaddressedItems,
+    unaddressedRows: items.filter(item => !item.addressed).length,
+    sectionTotals,
+  };
+}
+
+async function parsePickingListPdf(file) {
+  const pdfjs = await loadPdfJs();
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+  const lines = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const text = await page.getTextContent();
+    lines.push(...groupTextItemsIntoLines(text.items));
+  }
+
+  return parsePickingListLines(lines);
+}
+
 /**
- * Parses an XLSX/XLS/CSV file (File object) using SheetJS (window.XLSX).
- * Returns { orders: [...], skipped: number }
+ * Parses an XLSX/XLS/CSV/PDF file (File object).
+ * Returns { orders: [...], skipped: number } and PDF metadata when available.
  */
 export async function parseSpreadsheet(file) {
+  if (isPdfFile(file)) {
+    return parsePickingListPdf(file);
+  }
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -57,7 +263,7 @@ export async function parseSpreadsheet(file) {
         const colItems     = findColumn(headers, COLUMN_ALIASES.items);
 
         if (colOrder < 0) {
-          return reject(new Error('Coluna "Pedido" não encontrada na planilha'));
+          return reject(new Error('Coluna "Pedido" nao encontrada na planilha'));
         }
 
         const orders = [];
@@ -86,10 +292,11 @@ export async function parseSpreadsheet(file) {
             cycle: colCycle >= 0 ? String(row[colCycle] ?? '').trim() : '',
             approvedAt,
             items: itemCount,
+            sourceType: 'spreadsheet',
           });
         }
 
-        resolve({ orders, skipped });
+        resolve({ orders, skipped, sourceType: 'spreadsheet' });
       } catch (err) {
         reject(err);
       }
@@ -101,6 +308,6 @@ export async function parseSpreadsheet(file) {
 
 /** Formata date para display */
 export function formatDate(date) {
-  if (!date) return '—';
+  if (!date) return '-';
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }

@@ -40,11 +40,11 @@ function showInput(page, state, unitId) {
       <div class="text-muted text-xs mb-3">OPERADOR: <span class="text-accent">${state.operator.name}</span></div>
 
       <div style="margin-bottom:1rem;">
-        <p class="text-muted text-xs mb-1" style="letter-spacing:0.1em;">OPÇÃO 1 — IMPORTAR PLANILHA</p>
+        <p class="text-muted text-xs mb-1" style="letter-spacing:0.1em;">OPÇÃO 1 — IMPORTAR PLANILHA OU PDF</p>
         <div class="file-upload-area cyber-chamfer" id="drop-area">
-          <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
+          <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf,application/pdf">
           <div class="file-upload-icon">📂</div>
-          <div class="file-upload-text">Arraste ou selecione a planilha</div>
+          <div class="file-upload-text">Arraste ou selecione planilha ou PDF</div>
         </div>
         <div id="file-status" class="text-xs text-muted mt-1"></div>
         <div id="file-err" class="input-error-msg"></div>
@@ -97,23 +97,41 @@ function showInput(page, state, unitId) {
   const itemsInput  = page.querySelector('#order-items');
   const itemsErr    = page.querySelector('#items-err');
   const confirmBtn  = page.querySelector('#confirm-btn');
+  let importedPdfOrder = null;
 
   function checkReady() {
     const c = codeInput.value.trim();
     const i = parseInt(itemsInput.value, 10);
-    confirmBtn.disabled = !/^\d{9}$/.test(c) || isNaN(i) || i < 1;
+    const validImportedPdf = importedPdfOrder && c === importedPdfOrder.code;
+    confirmBtn.disabled = (!/^\d{9}$/.test(c) && !validImportedPdf) || isNaN(i) || i < 1;
   }
 
   async function handleFile(file) {
     fileErr.textContent = '';
     try {
-      const { orders, skipped } = await parseSpreadsheet(file);
+      const result = await parseSpreadsheet(file);
+      const { orders, skipped } = result;
       if (orders.length === 0) { fileErr.textContent = '> Nenhum pedido válido encontrado.'; return; }
-      const o = orders[0];
-      codeInput.value  = o.code;
-      cycleInput.value = o.cycle || '';
-      itemsInput.value = o.items || '';
-      fileStatus.innerHTML = `✓ <span class="text-accent">${o.code}</span> importado.${skipped > 0 ? ' ' + skipped + ' ignorados.' : ''}`;
+      if (result.sourceType === 'pdf') {
+        const itemCount = result.totalItems || orders.reduce((sum, order) => sum + (order.items || 0), 0);
+        importedPdfOrder = {
+          code: result.batchCode,
+          cycle: `${result.exportedDate || ''}${result.exportedTime ? ' ' + result.exportedTime : ''}`.trim(),
+          items: itemCount,
+          importMeta: result,
+        };
+        codeInput.value  = importedPdfOrder.code;
+        cycleInput.value = importedPdfOrder.cycle;
+        itemsInput.value = importedPdfOrder.items;
+        fileStatus.innerHTML = `✓ PDF: lote <span class="text-accent">${result.batchCode}</span> importado como avulso, ${itemCount} itens.`;
+      } else {
+        importedPdfOrder = null;
+        const o = orders[0];
+        codeInput.value  = o.code;
+        cycleInput.value = o.cycle || '';
+        itemsInput.value = o.items || '';
+        fileStatus.innerHTML = `✓ <span class="text-accent">${o.code}</span> importado.${skipped > 0 ? ' ' + skipped + ' ignorados.' : ''}`;
+      }
       checkReady();
     } catch (err) { fileErr.textContent = '> ERRO: ' + err.message; }
   }
@@ -124,6 +142,7 @@ function showInput(page, state, unitId) {
   dropArea.addEventListener('drop', e => { e.preventDefault(); dropArea.classList.remove('drag-over'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
 
   codeInput.addEventListener('input', () => {
+    importedPdfOrder = null;
     codeInput.value = codeInput.value.replace(/\D/g, '');
     codeErr.textContent = codeInput.value && !/^\d{9}$/.test(codeInput.value) ? '> DEVE TER 9 DÍGITOS' : '';
     checkReady();
@@ -139,6 +158,7 @@ function showInput(page, state, unitId) {
       code:  codeInput.value.trim(),
       cycle: cycleInput.value.trim(),
       items: parseInt(itemsInput.value, 10),
+      importMeta: importedPdfOrder?.importMeta || null,
     };
     showSepChrono(page, state, unitId);
   });
@@ -259,6 +279,21 @@ function showBipStep(page, state, unitId) {
   return () => chrono.stop();
 }
 
+function serializeImportMeta(meta) {
+  if (meta?.sourceType !== 'pdf') return null;
+  return {
+    sourceType: 'pdf',
+    batchCode: meta.batchCode,
+    exportedDate: meta.exportedDate,
+    exportedTime: meta.exportedTime,
+    exportedAt: meta.exportedAt?.toISOString ? meta.exportedAt.toISOString() : (meta.exportedAt || null),
+    totalItems: meta.totalItems,
+    unaddressedItems: meta.unaddressedItems,
+    unaddressedRows: meta.unaddressedRows,
+    sectionTotals: meta.sectionTotals,
+  };
+}
+
 async function saveSingleOrder(page, state, unitId, withBipping) {
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
 
@@ -272,6 +307,7 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
       orderCode: state.order.code,
       cycle: state.order.cycle,
       items: state.order.items,
+      importMeta: serializeImportMeta(state.order.importMeta),
       separationSeconds: state.sepSeconds,
       bippingSeconds: withBipping ? state.bipSeconds : null,
       boxCode: withBipping ? state.boxCode : null,

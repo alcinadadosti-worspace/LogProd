@@ -32,6 +32,7 @@ export async function renderFunctionComplete(container, params) {
     operator: null,
     orders: [],
     batchCode: '',
+    importMeta: null,
     sepSeconds: 0,
     bipSeconds: 0,
     boxCodes: {},
@@ -57,13 +58,13 @@ function showStep1(page, state, unitId) {
     </h2>
 
     <div class="card cyber-chamfer" style="max-width:600px;">
-      <div class="section-title mb-2">PASSO 1 — IMPORTAR PLANILHA DO LOTE</div>
+      <div class="section-title mb-2">PASSO 1 — IMPORTAR PLANILHA OU PDF DO LOTE</div>
 
       <div class="file-upload-area cyber-chamfer" id="drop-area">
-        <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf,application/pdf">
         <div class="file-upload-icon">📂</div>
-        <div class="file-upload-text">Arraste ou clique para selecionar a planilha</div>
-        <div class="file-upload-hint">.xlsx · .xls · .csv</div>
+        <div class="file-upload-text">Arraste ou clique para selecionar planilha ou PDF</div>
+        <div class="file-upload-hint">.xlsx · .xls · .csv · .pdf</div>
       </div>
 
       <div id="file-status" class="text-xs text-muted mt-1"></div>
@@ -99,16 +100,31 @@ function showStep1(page, state, unitId) {
 
   async function handleFile(file) {
     fileErr.textContent = '';
-    fileStatus.textContent = 'Processando planilha...';
+    fileStatus.textContent = file.name.toLowerCase().endsWith('.pdf') ? 'Processando PDF...' : 'Processando planilha...';
     try {
       const result = await parseSpreadsheet(file);
       parsedOrders  = result.orders;
       parsedSkipped = result.skipped;
+      state.importMeta = result.sourceType === 'pdf' ? result : null;
 
-      fileStatus.innerHTML = `
-        ✓ <span class="text-accent">${parsedOrders.length} pedidos</span> carregados.
-        ${parsedSkipped > 0 ? `<span class="text-muted">${parsedSkipped} linhas ignoradas.</span>` : ''}
-      `;
+      if (result.sourceType === 'pdf') {
+        batchInput.value = result.batchCode;
+        batchInput.readOnly = true;
+        batchErr.textContent = '';
+        fileStatus.innerHTML = `
+          ✓ PDF: lote <span class="text-accent">${result.batchCode}</span>,
+          <span class="text-accent">${result.orders.length} materiais</span>,
+          ${result.totalItems} itens.
+          ${result.unaddressedItems > 0 ? `<span class="text-muted">${result.unaddressedItems} sem endereco.</span>` : ''}
+        `;
+      } else {
+        batchInput.value = '';
+        batchInput.readOnly = false;
+        fileStatus.innerHTML = `
+          ✓ <span class="text-accent">${parsedOrders.length} pedidos</span> carregados.
+          ${parsedSkipped > 0 ? `<span class="text-muted">${parsedSkipped} linhas ignoradas.</span>` : ''}
+        `;
+      }
       batchGroup.style.display = 'flex';
       batchGroup.style.flexDirection = 'column';
       checkReady();
@@ -150,6 +166,9 @@ function showStep1(page, state, unitId) {
 // ─── Step 2: Confirmação do lote ─────────────────────────────────────────────
 function showStep2(page, state, unitId) {
   const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
+  const isPdf = state.importMeta?.sourceType === 'pdf';
+  const countLabel = isPdf ? 'MATERIAIS' : 'PEDIDOS';
+  const listTitle = isPdf ? 'MATERIAIS' : 'PEDIDOS';
 
   page.innerHTML = `
     <div class="card cyber-chamfer" style="max-width:700px;">
@@ -158,17 +177,17 @@ function showStep2(page, state, unitId) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
         <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
         <div class="stat-row"><span class="stat-label">OPERADOR</span><span class="stat-value">${state.operator.name}</span></div>
-        <div class="stat-row"><span class="stat-label">PEDIDOS</span><span class="stat-value text-accent">${state.orders.length}</span></div>
+        <div class="stat-row"><span class="stat-label">${countLabel}</span><span class="stat-value text-accent">${state.orders.length}</span></div>
         <div class="stat-row"><span class="stat-label">ITENS TOTAL</span><span class="stat-value text-accent">${totalItems}</span></div>
       </div>
 
-      <div class="section-title mb-1">PEDIDOS</div>
+      <div class="section-title mb-1">${listTitle}</div>
       <div class="order-list">
         ${state.orders.map(o => `
           <div class="order-item">
             <span class="order-code">${o.code}</span>
             <span class="order-cycle">${o.cycle}</span>
-            <span class="text-muted text-xs">${o.approvedAt ? formatDate(o.approvedAt) : '—'}</span>
+            <span class="text-muted text-xs">${isPdf ? (o.description || '—') : (o.approvedAt ? formatDate(o.approvedAt) : '—')}</span>
             <span class="order-items">${o.items} itens</span>
           </div>
         `).join('')}
@@ -197,7 +216,7 @@ function showStep3Sep(page, state, unitId) {
     <div style="max-width:500px;margin:0 auto;text-align:center;">
       <div class="section-title mb-2">SEPARAÇÃO EM ANDAMENTO</div>
       <div class="text-muted text-xs mb-3 cursor" style="letter-spacing:0.2em;">
-        LOTE ${state.batchCode} · ${state.orders.length} PEDIDOS · ${state.orders.reduce((s,o)=>s+o.items,0)} ITENS
+        LOTE ${state.batchCode} · ${state.orders.length} ${state.importMeta?.sourceType === 'pdf' ? 'MATERIAIS' : 'PEDIDOS'} · ${state.orders.reduce((s,o)=>s+o.items,0)} ITENS
       </div>
 
       <div class="card cyber-chamfer" style="padding:3rem 2rem;">
@@ -259,6 +278,36 @@ function showStep4AskBip(page, state, unitId) {
 }
 
 // ─── Save ONLY_SEPARATION ────────────────────────────────────────────────────
+function serializeOrder(o) {
+  return {
+    code: o.code,
+    cycle: o.cycle,
+    approvedAt: o.approvedAt ? o.approvedAt.toISOString() : null,
+    items: o.items,
+    sourceType: o.sourceType || 'spreadsheet',
+    material: o.material || null,
+    sku: o.sku || o.material || null,
+    description: o.description || null,
+    address: o.address || null,
+    addressed: typeof o.addressed === 'boolean' ? o.addressed : null,
+  };
+}
+
+function serializeImportMeta(meta) {
+  if (meta?.sourceType !== 'pdf') return null;
+  return {
+    sourceType: 'pdf',
+    batchCode: meta.batchCode,
+    exportedDate: meta.exportedDate,
+    exportedTime: meta.exportedTime,
+    exportedAt: meta.exportedAt?.toISOString ? meta.exportedAt.toISOString() : (meta.exportedAt || null),
+    totalItems: meta.totalItems,
+    unaddressedItems: meta.unaddressedItems,
+    unaddressedRows: meta.unaddressedRows,
+    sectionTotals: meta.sectionTotals,
+  };
+}
+
 async function saveOnlySeparation(page, state, unitId) {
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div><div class="text-accent mt-2">Salvando...</div></div>`;
 
@@ -272,11 +321,8 @@ async function saveOnlySeparation(page, state, unitId) {
     xp: xpResult.total,
     batch: {
       batchCode: state.batchCode,
-      orders: state.orders.map(o => ({
-        code: o.code, cycle: o.cycle,
-        approvedAt: o.approvedAt ? o.approvedAt.toISOString() : null,
-        items: o.items,
-      })),
+      orders: state.orders.map(serializeOrder),
+      importMeta: serializeImportMeta(state.importMeta),
       totalOrders: state.orders.length,
       totalItems,
       separationSeconds: state.sepSeconds,
@@ -338,7 +384,7 @@ function showStep5Bip(page, state, unitId) {
         <div style="padding:0.5rem 1rem;border-bottom:1px solid var(--border);
                     display:flex;justify-content:space-between;font-size:0.65rem;
                     font-family:var(--font-terminal);color:var(--muted-fg);letter-spacing:0.15em;">
-          <span>PEDIDO</span>
+          <span>${state.importMeta?.sourceType === 'pdf' ? 'SKU' : 'PEDIDO'}</span>
           <span>CICLO</span>
           <span>ITENS</span>
           <span>CÓD. CAIXA (10 DIG.)</span>
@@ -436,11 +482,8 @@ async function saveBatch(page, state, unitId) {
     xp: xpResult.total,
     batch: {
       batchCode: state.batchCode,
-      orders: state.orders.map(o => ({
-        code: o.code, cycle: o.cycle,
-        approvedAt: o.approvedAt ? o.approvedAt.toISOString() : null,
-        items: o.items,
-      })),
+      orders: state.orders.map(serializeOrder),
+      importMeta: serializeImportMeta(state.importMeta),
       totalOrders: state.orders.length,
       totalItems,
       separationSeconds: state.sepSeconds,
@@ -478,6 +521,7 @@ async function saveBatch(page, state, unitId) {
 // ─── Summary ──────────────────────────────────────────────────────────────────
 function showSummary(page, state, xpResult, type) {
   const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
+  const countLabel = state.importMeta?.sourceType === 'pdf' ? 'MATERIAIS' : 'PEDIDOS';
 
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;">
@@ -494,7 +538,7 @@ function showSummary(page, state, xpResult, type) {
         <div class="section-title mb-2">RESUMO DA OPERAÇÃO</div>
         <div class="stat-row"><span class="stat-label">TIPO</span><span class="stat-value">${type === 'BATCH' ? 'Função Completa' : 'Apenas Separação'}</span></div>
         <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
-        <div class="stat-row"><span class="stat-label">PEDIDOS</span><span class="stat-value">${state.orders.length}</span></div>
+        <div class="stat-row"><span class="stat-label">${countLabel}</span><span class="stat-value">${state.orders.length}</span></div>
         <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value">${totalItems}</span></div>
         <div class="stat-row"><span class="stat-label">SEPARAÇÃO</span><span class="stat-value">${Chronometer.format(state.sepSeconds)}</span></div>
         ${state.bipSeconds ? `<div class="stat-row"><span class="stat-label">BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>` : ''}

@@ -25,7 +25,7 @@ export async function renderOnlySeparator(container, params) {
   container.querySelector('#back-btn').addEventListener('click', () => navigate('/dashboard'));
 
   const page = container.querySelector('#sep-page');
-  const state = { operator: null, orders: [], batchCode: '', sepSeconds: 0, config: null };
+  const state = { operator: null, orders: [], batchCode: '', sepSeconds: 0, config: null, importMeta: null };
 
   state.config   = await getGlobalConfig();
   state.operator = await selectOperator(unitId);
@@ -37,16 +37,16 @@ export async function renderOnlySeparator(container, params) {
 function showUpload(page, state, unitId) {
   page.innerHTML = `
     <div class="card cyber-chamfer" style="max-width:600px;">
-      <div class="section-title mb-2">IMPORTAR PLANILHA DO LOTE</div>
+      <div class="section-title mb-2">IMPORTAR PLANILHA OU PDF DO LOTE</div>
       <div class="text-muted text-xs mb-2" style="letter-spacing:0.1em;">
         OPERADOR: <span class="text-accent">${state.operator.name}</span>
       </div>
 
       <div class="file-upload-area cyber-chamfer" id="drop-area">
-        <input type="file" id="file-input" accept=".xlsx,.xls,.csv">
+        <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf,application/pdf">
         <div class="file-upload-icon">📂</div>
-        <div class="file-upload-text">Arraste ou clique para selecionar a planilha</div>
-        <div class="file-upload-hint">.xlsx · .xls · .csv</div>
+        <div class="file-upload-text">Arraste ou clique para selecionar planilha ou PDF</div>
+        <div class="file-upload-hint">.xlsx · .xls · .csv · .pdf</div>
       </div>
       <div id="file-status" class="text-xs text-muted mt-1"></div>
       <div id="file-err" class="input-error-msg mt-1"></div>
@@ -80,9 +80,20 @@ function showUpload(page, state, unitId) {
     fileErr.textContent = '';
     fileStatus.textContent = 'Processando...';
     try {
-      const { orders, skipped } = await parseSpreadsheet(file);
+      const result = await parseSpreadsheet(file);
+      const { orders, skipped } = result;
       parsedOrders = orders;
-      fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>. ${skipped > 0 ? skipped + ' ignorados.' : ''}`;
+      state.importMeta = result.sourceType === 'pdf' ? result : null;
+      if (result.sourceType === 'pdf') {
+        batchInput.value = result.batchCode;
+        batchInput.readOnly = true;
+        batchErr.textContent = '';
+        fileStatus.innerHTML = `✓ PDF: lote <span class="text-accent">${result.batchCode}</span>, <span class="text-accent">${orders.length} materiais</span>, ${result.totalItems} itens. ${result.unaddressedItems > 0 ? result.unaddressedItems + ' sem endereco.' : ''}`;
+      } else {
+        batchInput.value = '';
+        batchInput.readOnly = false;
+        fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>. ${skipped > 0 ? skipped + ' ignorados.' : ''}`;
+      }
       batchGroup.style.display = 'flex';
       batchGroup.style.flexDirection = 'column';
       checkReady();
@@ -119,12 +130,13 @@ function showUpload(page, state, unitId) {
 
 function showConfirmation(page, state, unitId) {
   const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
+  const isPdf = state.importMeta?.sourceType === 'pdf';
   page.innerHTML = `
     <div class="card cyber-chamfer" style="max-width:680px;">
       <div class="section-title mb-2">CONFIRMAR LOTE</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
         <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
-        <div class="stat-row"><span class="stat-label">PEDIDOS</span><span class="stat-value text-accent">${state.orders.length}</span></div>
+        <div class="stat-row"><span class="stat-label">${isPdf ? 'MATERIAIS' : 'PEDIDOS'}</span><span class="stat-value text-accent">${state.orders.length}</span></div>
         <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value text-accent">${totalItems}</span></div>
         <div class="stat-row"><span class="stat-label">OPERADOR</span><span class="stat-value">${state.operator.name}</span></div>
       </div>
@@ -133,7 +145,7 @@ function showConfirmation(page, state, unitId) {
           <div class="order-item">
             <span class="order-code">${o.code}</span>
             <span class="order-cycle">${o.cycle}</span>
-            <span class="text-muted text-xs">${o.approvedAt ? formatDate(o.approvedAt) : '—'}</span>
+            <span class="text-muted text-xs">${isPdf ? (o.description || '—') : (o.approvedAt ? formatDate(o.approvedAt) : '—')}</span>
             <span class="order-items">${o.items} itens</span>
           </div>`).join('')}
       </div>
@@ -157,7 +169,7 @@ function showChrono(page, state, unitId) {
     <div style="max-width:500px;margin:0 auto;text-align:center;">
       <div class="section-title mb-2">SEPARAÇÃO EM ANDAMENTO</div>
       <div class="text-muted text-xs mb-3 cursor" style="letter-spacing:0.2em;">
-        LOTE ${state.batchCode} · ${state.orders.length} PEDIDOS · ${state.orders.reduce((s,o)=>s+o.items,0)} ITENS
+        LOTE ${state.batchCode} · ${state.orders.length} ${state.importMeta?.sourceType === 'pdf' ? 'MATERIAIS' : 'PEDIDOS'} · ${state.orders.reduce((s,o)=>s+o.items,0)} ITENS
       </div>
       <div class="card cyber-chamfer" style="padding:3rem 2rem;">
         <div class="chrono-label mb-1">TEMPO DE SEPARAÇÃO</div>
@@ -183,6 +195,36 @@ function showChrono(page, state, unitId) {
   return () => chrono.stop();
 }
 
+function serializeOrder(o) {
+  return {
+    code: o.code,
+    cycle: o.cycle,
+    approvedAt: o.approvedAt?.toISOString() ?? null,
+    items: o.items,
+    sourceType: o.sourceType || 'spreadsheet',
+    material: o.material || null,
+    sku: o.sku || o.material || null,
+    description: o.description || null,
+    address: o.address || null,
+    addressed: typeof o.addressed === 'boolean' ? o.addressed : null,
+  };
+}
+
+function serializeImportMeta(meta) {
+  if (meta?.sourceType !== 'pdf') return null;
+  return {
+    sourceType: 'pdf',
+    batchCode: meta.batchCode,
+    exportedDate: meta.exportedDate,
+    exportedTime: meta.exportedTime,
+    exportedAt: meta.exportedAt?.toISOString ? meta.exportedAt.toISOString() : (meta.exportedAt || null),
+    totalItems: meta.totalItems,
+    unaddressedItems: meta.unaddressedItems,
+    unaddressedRows: meta.unaddressedRows,
+    sectionTotals: meta.sectionTotals,
+  };
+}
+
 async function save(page, state, unitId, startedAt, finishedAt) {
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
 
@@ -194,7 +236,8 @@ async function save(page, state, unitId, startedAt, finishedAt) {
     type: 'ONLY_SEPARATION', xp: xpResult.total,
     batch: {
       batchCode: state.batchCode,
-      orders: state.orders.map(o => ({ code: o.code, cycle: o.cycle, approvedAt: o.approvedAt?.toISOString() ?? null, items: o.items })),
+      orders: state.orders.map(serializeOrder),
+      importMeta: serializeImportMeta(state.importMeta),
       totalOrders: state.orders.length, totalItems,
       separationSeconds: state.sepSeconds,
       separationStartedAt: startedAt.toISOString(),
@@ -226,6 +269,7 @@ async function save(page, state, unitId, startedAt, finishedAt) {
 
 function showSummary(page, state, xpResult) {
   const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
+  const countLabel = state.importMeta?.sourceType === 'pdf' ? 'MATERIAIS' : 'PEDIDOS';
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;">
       <div class="xp-summary cyber-chamfer-lg fade-in">
@@ -236,7 +280,7 @@ function showSummary(page, state, xpResult) {
       <div class="card cyber-chamfer mt-2">
         <div class="section-title mb-2">RESUMO</div>
         <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
-        <div class="stat-row"><span class="stat-label">PEDIDOS</span><span class="stat-value">${state.orders.length}</span></div>
+        <div class="stat-row"><span class="stat-label">${countLabel}</span><span class="stat-value">${state.orders.length}</span></div>
         <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value">${totalItems}</span></div>
         <div class="stat-row"><span class="stat-label">TEMPO</span><span class="stat-value">${Chronometer.format(state.sepSeconds)}</span></div>
         <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} itens/min</span></div>
