@@ -19,6 +19,31 @@ import {
   playXP,
 } from "../services/sound-engine.js";
 
+const VD_CITIES = {
+  "VD Palmeira": [
+    "Palmeira dos Índios",
+    "Minador",
+    "Cacimbinhas",
+    "Igaci",
+    "Quebrangulo",
+    "Major Isidoro",
+    "Estrela de Alagoas",
+  ],
+  "VD Penedo": [
+    "Junqueiro",
+    "São Brás",
+    "Olho d'água",
+    "Porto Real do Colégio",
+    "Igreja Nova",
+    "São Sebastião",
+    "Penedo",
+    "Teotônio Vilela",
+    "Coruripe",
+    "Feliz Deserto",
+    "Piaçabuçu",
+  ],
+};
+
 export async function renderFunctionComplete(container, params) {
   if (!getCurrentUser()) {
     navigate("/login");
@@ -59,6 +84,8 @@ export async function renderFunctionComplete(container, params) {
     boxCodes: {},
     config: null,
     currentChrono: null,
+    vd: null,
+    city: null,
   };
 
   state.config = await getGlobalConfig();
@@ -254,7 +281,73 @@ function showStep2(page, state, unitId) {
     .addEventListener("click", () => showStep1(page, state, unitId));
   page
     .querySelector("#start-sep")
-    .addEventListener("click", () => showStep3Sep(page, state, unitId));
+    .addEventListener("click", () =>
+      showCitySelection(page, state, unitId, () =>
+        showStep3Sep(page, state, unitId),
+      ),
+    );
+}
+
+// ─── City selection ─────────────────────────────────────────────────────────
+function showCitySelection(page, state, unitId, onConfirm) {
+  function renderVdStep() {
+    page.innerHTML = `
+      <div class="card cyber-chamfer" style="max-width:520px;text-align:center;">
+        <div class="section-title mb-1">DE ONDE É ESSE LOTE?</div>
+        <div class="text-muted text-xs mb-4" style="letter-spacing:0.1em;">LOTE <span class="text-accent">${state.batchCode}</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+          ${Object.keys(VD_CITIES)
+            .map(
+              (vd) => `
+            <button class="btn cyber-chamfer vd-btn" data-vd="${vd}" style="padding:1.5rem 1rem;font-size:0.8rem;letter-spacing:0.1em;">
+              📍 ${vd}
+            </button>
+          `,
+            )
+            .join("")}
+        </div>
+      </div>
+    `;
+    page.querySelectorAll(".vd-btn").forEach((btn) => {
+      btn.addEventListener("click", () => renderCityStep(btn.dataset.vd));
+    });
+  }
+
+  function renderCityStep(vd) {
+    const cities = VD_CITIES[vd];
+    page.innerHTML = `
+      <div class="card cyber-chamfer" style="max-width:520px;text-align:center;">
+        <div class="section-title mb-1">DE ONDE É ESSE LOTE?</div>
+        <div class="text-muted text-xs mb-1" style="letter-spacing:0.1em;">LOTE <span class="text-accent">${state.batchCode}</span> · <span class="text-accent">${vd}</span></div>
+        <div class="text-muted text-xs mb-3">Selecione a cidade de origem</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:0.6rem;margin-bottom:0.75rem;">
+          ${cities
+            .map(
+              (city) => `
+            <button class="btn cyber-chamfer city-btn" data-city="${city}" style="padding:0.75rem 0.5rem;font-size:0.73rem;">
+              ${city}
+            </button>
+          `,
+            )
+            .join("")}
+        </div>
+        <button class="btn btn--full cyber-chamfer city-btn mb-2" data-city="Várias cidades" style="background:rgba(124,58,237,0.1);">
+          🌐 VÁRIAS CIDADES
+        </button>
+        <button id="back-vd" class="btn btn--ghost cyber-chamfer-sm" style="font-size:0.7rem;">← VOLTAR</button>
+      </div>
+    `;
+    page.querySelectorAll(".city-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.vd = vd;
+        state.city = btn.dataset.city;
+        onConfirm();
+      });
+    });
+    page.querySelector("#back-vd").addEventListener("click", renderVdStep);
+  }
+
+  renderVdStep();
 }
 
 // ─── Step 3: Cronômetro separação ────────────────────────────────────────────
@@ -475,6 +568,8 @@ async function saveOnlySeparation(page, state, unitId) {
       bippingFinishedAt: null,
       bippingSeconds: null,
       boxCodes: {},
+      vd: state.vd || null,
+      city: state.city || null,
     },
   };
 
@@ -670,6 +765,8 @@ async function saveBatch(page, state, unitId) {
       bippingFinishedAt: state.bipEnd?.toISOString() ?? null,
       bippingSeconds: state.bipSeconds,
       boxCodes: state.boxCodes,
+      vd: state.vd || null,
+      city: state.city || null,
     },
   };
 
