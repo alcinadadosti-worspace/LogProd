@@ -262,25 +262,33 @@ function showBipStep(page, state, unitId) {
   const boxInput   = page.querySelector('#box-code');
   const boxErr     = page.querySelector('#box-err');
   const validateBtn = page.querySelector('#validate-box');
+  let isFinishing = false;
 
   chrono.start();
   playStart();
 
-  boxInput.addEventListener('input', () => {
-    boxInput.value = boxInput.value.replace(/\D/g, '');
-    boxErr.textContent = boxInput.value && !/^\d{10}$/.test(boxInput.value) ? '> DEVE TER 10 DÍGITOS' : '';
-    validateBtn.disabled = !/^\d{10}$/.test(boxInput.value);
-  });
-
-  boxInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !validateBtn.disabled) validateBtn.click(); });
-
-  validateBtn.addEventListener('click', async () => {
+  async function finishBipping() {
+    if (isFinishing || !/^\d{10}$/.test(boxInput.value)) return;
+    isFinishing = true;
+    validateBtn.disabled = true;
+    boxInput.disabled = true;
     chrono.stop();
     playConfirm();
     state.bipSeconds = chrono.getSeconds();
     state.boxCode    = boxInput.value.trim();
     await saveSingleOrder(page, state, unitId, true);
+  }
+
+  boxInput.addEventListener('input', () => {
+    boxInput.value = boxInput.value.replace(/\D/g, '');
+    boxErr.textContent = boxInput.value && !/^\d{10}$/.test(boxInput.value) ? '> DEVE TER 10 DÍGITOS' : '';
+    validateBtn.disabled = !/^\d{10}$/.test(boxInput.value);
+    finishBipping();
   });
+
+  boxInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !validateBtn.disabled) finishBipping(); });
+
+  validateBtn.addEventListener('click', finishBipping);
 
   return () => chrono.stop();
 }

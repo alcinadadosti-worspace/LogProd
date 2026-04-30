@@ -318,8 +318,22 @@ function showBippingChrono(page, state, unitId) {
   `;
 
   const bipStart = new Date();
+  let isFinishing = false;
   chrono.start();
   playStart();
+
+  async function finishBipping() {
+    if (isFinishing || Object.keys(lockedMap).length < bippingOrders.length) return;
+    isFinishing = true;
+    const finishBtn = page.querySelector('#finish-bip');
+    if (finishBtn) finishBtn.disabled = true;
+    chrono.stop();
+    state.bipSeconds = chrono.getSeconds();
+    state.bipStart   = bipStart;
+    state.bipEnd     = new Date();
+    state.boxCodes   = { ...lockedMap };
+    await save(page, state, unitId);
+  }
 
   function updateProgress() {
     const count = Object.keys(lockedMap).length;
@@ -348,16 +362,10 @@ function showBippingChrono(page, state, unitId) {
       page.querySelector(`#status-${code}`).className   = 'order-status pending';
     }
     updateProgress();
+    finishBipping();
   });
 
-  page.querySelector('#finish-bip').addEventListener('click', async () => {
-    chrono.stop();
-    state.bipSeconds = chrono.getSeconds();
-    state.bipStart   = bipStart;
-    state.bipEnd     = new Date();
-    state.boxCodes   = { ...lockedMap };
-    await save(page, state, unitId);
-  });
+  page.querySelector('#finish-bip').addEventListener('click', finishBipping);
 
   return () => chrono.stop();
 }
