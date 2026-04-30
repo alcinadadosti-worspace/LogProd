@@ -113,6 +113,28 @@
                 content: "● ";
                 color: var(--accent);
             }
+
+            /* Popup escuro para o mapa de calor */
+            .city-detail-popup .leaflet-popup-content-wrapper {
+                background: #0f172a;
+                color: #f1f5f9;
+                border: 1px solid #334155;
+                border-radius: 4px;
+                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.8);
+                padding: 0;
+            }
+            .city-detail-popup .leaflet-popup-content {
+                margin: 12px 14px;
+            }
+            .city-detail-popup .leaflet-popup-tip-container .leaflet-popup-tip {
+                background: #0f172a;
+            }
+            .city-detail-popup .leaflet-popup-close-button {
+                color: #64748b;
+            }
+            .city-detail-popup .leaflet-popup-close-button:hover {
+                color: #f1f5f9;
+            }
         </style>
     </head>
     <body>

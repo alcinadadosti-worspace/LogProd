@@ -642,9 +642,11 @@ export async function renderAnalytics(container, params) {
         cityOrderMap[c] = 0;
       });
     events.forEach((ev) => {
-      const city = ev.batch?.city;
-      const vd = ev.batch?.vd;
-      const orders = ev.batch?.totalOrders || 0;
+      // inclui tanto lotes quanto pedidos avulsos
+      const city = ev.batch?.city || ev.singleOrder?.city;
+      const vd = ev.batch?.vd || ev.singleOrder?.vd;
+      const orders =
+        ev.batch?.totalOrders || (ev.type === "SINGLE_ORDER" ? 1 : 0);
       if (!city || !orders) return;
       if (city !== "Várias cidades") {
         if (cityOrderMap[city] !== undefined) cityOrderMap[city] += orders;
