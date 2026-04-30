@@ -4,7 +4,7 @@ import {
   collection, query, where, orderBy, limit,
   getDocs, onSnapshot, Timestamp, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
-import { cacheGet, cacheSet, cacheDel, cacheDelPrefix } from './cache.js';
+import { cacheGet, cacheSet, cacheDel, cacheDelPrefix, cacheUpdateMatching } from './cache.js';
 
 const TTL = {
   config: 30 * 60 * 1000,  // 30 min — config quase nunca muda
@@ -95,8 +95,26 @@ export async function setUnit(unitId, data) {
 export async function createEvent(eventData) {
   const payload = { ...eventData, createdAt: serverTimestamp() };
   const ref = await addDoc(collection(db, 'events'), payload);
-  // Invalida caches de eventos para que o próximo ranking/analytics leia dados frescos
-  cacheDelPrefix('events:');
+
+  // Em vez de invalidar (que força refetch de até 500 docs), acrescenta o evento
+  // localmente nos caches de eventos que cobrem unitId+período correspondentes.
+  // Chave: 'events:<unitId|all>:<startMs>:<endMs>' (0 = sem limite naquela ponta).
+  const localTs = new Date();
+  const localEvent = { id: ref.id, ...eventData, createdAt: localTs };
+
+  cacheUpdateMatching('events:', (key, entry) => {
+    const [, cachedUnit, startStr, endStr] = key.split(':');
+    const startMs = parseInt(startStr, 10);
+    const endMs   = parseInt(endStr, 10);
+
+    if (cachedUnit !== 'all' && cachedUnit !== eventData.unitId) return;
+    if (startMs && localTs.getTime() < startMs) return;
+    if (endMs   && localTs.getTime() > endMs)   return;
+
+    // Eventos vêm de getDocs ordenados por createdAt desc — prepend para manter a ordem.
+    entry.data = [localEvent, ...entry.data];
+  });
+
   return ref.id;
 }
 
@@ -144,18 +162,23 @@ export async function getAllEvents({ startDate, endDate, maxDocs = 500 } = {}) {
   return events;
 }
 
-/** Find ONLY_SEPARATION event by batchCode + unitId */
+/**
+ * Find ONLY_SEPARATION event by batchCode + unitId.
+ * Query direta por batch.batchCode — 1 leitura quando encontra, 0 quando não.
+ * Requer índice composto (unitId, type, batch.batchCode) — ver firestore.indexes.json.
+ */
 export async function findSeparationBatch(unitId, batchCode) {
   const q = query(
     collection(db, 'events'),
     where('unitId', '==', unitId),
     where('type', '==', 'ONLY_SEPARATION'),
-    orderBy('createdAt', 'desc'),
-    limit(20)
+    where('batch.batchCode', '==', batchCode),
+    limit(1)
   );
   const snap = await getDocs(q);
-  const match = snap.docs.find(d => d.data().batch?.batchCode === batchCode);
-  return match ? { id: match.id, ...match.data() } : null;
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return { id: d.id, ...d.data() };
 }
 
 /** Aggregate XP + stats per stockist for ranking */

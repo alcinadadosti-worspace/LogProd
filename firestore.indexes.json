@@ -25,6 +25,15 @@
         { "fieldPath": "type",   "order": "ASCENDING"  },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "unitId",          "order": "ASCENDING" },
+        { "fieldPath": "type",            "order": "ASCENDING" },
+        { "fieldPath": "batch.batchCode", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
