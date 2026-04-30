@@ -81,7 +81,15 @@ registerRoute('/404', (container) => {
 let routerStarted = false;
 
 async function boot() {
-  const user = await waitForAuth(); // authStateReady: estado definitivo garantido
+  let user = null;
+  try {
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('auth timeout')), 8000)
+    );
+    user = await Promise.race([waitForAuth(), timeout]);
+  } catch (e) {
+    console.warn('[boot] waitForAuth falhou:', e.message);
+  }
 
   if (loadingBar) loadingBar.style.width = '100%';
   await new Promise(r => setTimeout(r, 400));
