@@ -239,6 +239,47 @@ export async function findSeparationBatch(unitId, batchCode) {
   return local ?? null;
 }
 
+/**
+ * Busca um pedido avulso separado (SINGLE_ORDER) pelo código do pedido.
+ * Tenta flush dos pendentes antes, e verifica localStorage como fallback.
+ */
+export async function findSeparationOrder(unitId, orderCode) {
+  // Tenta enviar eventos pendentes antes de buscar
+  try {
+    await flushPendingEvents();
+  } catch {
+    /* ignora falha de flush */
+  }
+
+  // Busca no Firestore
+  try {
+    const q = query(
+      collection(db, "events"),
+      where("unitId", "==", unitId),
+      where("type", "==", "SINGLE_ORDER"),
+      where("singleOrder.orderCode", "==", orderCode),
+      limit(1),
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const d = snap.docs[0];
+      return { id: d.id, ...d.data() };
+    }
+  } catch (err) {
+    console.error("[findSeparationOrder] Erro no Firestore:", err);
+  }
+
+  // Fallback: busca nos eventos pendentes no localStorage
+  const pending = getPendingEvents();
+  const local = pending.find(
+    (ev) =>
+      ev.unitId === unitId &&
+      ev.type === "SINGLE_ORDER" &&
+      ev.singleOrder?.orderCode === orderCode,
+  );
+  return local ?? null;
+}
+
 /** Aggregate XP + stats per stockist for ranking */
 export function computeRanking(events) {
   const map = {};

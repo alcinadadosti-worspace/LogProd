@@ -7,6 +7,7 @@ import {
   saveEventLocally,
   getGlobalConfig,
   findSeparationBatch,
+  findSeparationOrder,
 } from "../services/firestore.js";
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
@@ -97,9 +98,16 @@ function showBatchSearch(page, state, unitId) {
         <div class="input-error-msg" id="order-err"></div>
       </div>
 
-      <button id="order-start" class="btn btn--secondary btn--full cyber-chamfer mb-3" disabled>
-        INICIAR BIPAGEM DO PEDIDO
+      <button id="order-start" class="btn btn--full cyber-chamfer mb-2" disabled>
+        🔍 BUSCAR PEDIDO NO SISTEMA
       </button>
+
+      <div id="order-search-result" style="display:none;margin-bottom:0.75rem;">
+        <div id="order-found-info" class="text-sm mb-2"></div>
+        <button id="use-order-found" class="btn btn--full cyber-chamfer" style="display:none;">
+          ✓ USAR ESTE PEDIDO → BIPAR
+        </button>
+      </div>
 
       <div id="search-result" style="display:none;">
         <div id="found-info" class="text-accent text-sm mb-2"></div>
@@ -134,6 +142,9 @@ function showBatchSearch(page, state, unitId) {
   const orderInput = page.querySelector("#order-input");
   const orderErr = page.querySelector("#order-err");
   const orderStart = page.querySelector("#order-start");
+  const orderSearchRes = page.querySelector("#order-search-result");
+  const orderFoundInfo = page.querySelector("#order-found-info");
+  const useOrderFound = page.querySelector("#use-order-found");
   const searchRes = page.querySelector("#search-result");
   const foundInfo = page.querySelector("#found-info");
   const useFound = page.querySelector("#use-found");
@@ -172,6 +183,10 @@ function showBatchSearch(page, state, unitId) {
       searchRes.style.display = "none";
       useFound.style.display = "none";
       manualStart.disabled = true;
+      // limpa resultado anterior de pedido
+      orderSearchRes.style.display = "none";
+      orderFoundInfo.textContent = "";
+      useOrderFound.style.display = "none";
     }
     orderErr.textContent =
       v && !/^\d{9}$/.test(v) ? "> DEVE TER 9 DIGITOS" : "";
@@ -182,14 +197,45 @@ function showBatchSearch(page, state, unitId) {
     if (e.key === "Enter" && !orderStart.disabled) orderStart.click();
   });
 
-  orderStart.addEventListener("click", () => {
+  orderStart.addEventListener("click", async () => {
     const orderCode = orderInput.value.trim();
     if (!/^\d{9}$/.test(orderCode)) return;
-    state.batchCode = "";
-    state.orders = [];
-    state.bippingOrders = [];
-    state.importMeta = null;
-    state.singleOrder = { code: orderCode, cycle: "", items: 1 };
+
+    orderStart.disabled = true;
+    orderStart.textContent = "BUSCANDO...";
+    orderSearchRes.style.display = "block";
+    orderFoundInfo.textContent = "";
+    useOrderFound.style.display = "none";
+
+    try {
+      const ev = await findSeparationOrder(unitId, orderCode);
+      if (ev) {
+        const so = ev.singleOrder || {};
+        orderFoundInfo.innerHTML = `✓ Pedido <span class="text-accent">${orderCode}</span> encontrado
+          &mdash; ${so.items || 1} ${so.items === 1 ? "item" : "itens"}${so.cycle ? " · Ciclo " + so.cycle : ""}`;
+        state.batchCode = "";
+        state.orders = [];
+        state.bippingOrders = [];
+        state.importMeta = null;
+        state.singleOrder = {
+          code: orderCode,
+          cycle: so.cycle || "",
+          items: so.items || 1,
+        };
+        useOrderFound.style.display = "block";
+      } else {
+        orderFoundInfo.innerHTML = `<span class="text-destructive">✗ Pedido ${orderCode} não encontrado como separação registrada.</span>`;
+      }
+    } catch (err) {
+      console.error("[findSeparationOrder]", err);
+      orderFoundInfo.innerHTML = `<span class="text-destructive">> Erro na busca. Verifique a conexão.</span>`;
+    }
+
+    orderStart.disabled = false;
+    orderStart.textContent = "🔍 BUSCAR PEDIDO NO SISTEMA";
+  });
+
+  useOrderFound.addEventListener("click", () => {
     showSingleOrderBipping(page, state, unitId);
   });
 
