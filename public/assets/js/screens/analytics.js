@@ -1142,10 +1142,31 @@ export async function renderAnalytics(container, params) {
       (async () => {
         try {
           if (!_geoJsonCache) {
-            const res = await fetch(
-              "https://servicodados.ibge.gov.br/api/v3/malhas/estados/27?formato=application/vnd.geo%2Bjson&resolucao=5",
-            );
-            _geoJsonCache = await res.json();
+            // Busca em paralelo: polígonos dos municípios + nomes pelo IBGE
+            const [geoRes, nomesRes] = await Promise.all([
+              fetch(
+                "https://servicodados.ibge.gov.br/api/v3/malhas/estados/27?resolucao=5&intrarregiao=municipio&formato=application/vnd.geo%2Bjson",
+              ),
+              fetch(
+                "https://servicodados.ibge.gov.br/api/v1/localidades/estados/27/municipios",
+              ),
+            ]);
+            const [geoData, municipios] = await Promise.all([
+              geoRes.json(),
+              nomesRes.json(),
+            ]);
+
+            // Enriquece cada feature com o nome do município
+            const codeToName = {};
+            municipios.forEach((m) => {
+              codeToName[String(m.id)] = m.nome;
+            });
+            geoData.features.forEach((f) => {
+              const code = String(f.properties?.codarea || "");
+              if (codeToName[code]) f.properties.NM_MUN = codeToName[code];
+            });
+
+            _geoJsonCache = geoData;
           }
 
           if (!_leafletMap) return; // mapa já foi destruído enquanto carregava
