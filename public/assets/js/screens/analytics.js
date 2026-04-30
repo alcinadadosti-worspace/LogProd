@@ -763,7 +763,7 @@ export async function renderAnalytics(container, params) {
       <!-- Charts row 1: XP por estoquista + Timeline -->
       <div class="grid-2 mb-2">
         <div class="card cyber-chamfer">
-          <div class="section-title mb-2">XP POR ESTOQUISTA</div>
+          <div class="section-title mb-2">XP POR ESTOQUISTA${isAdmin && units.length > 1 ? ' <span style="font-size:0.6rem;color:var(--muted-fg);font-family:var(--font-terminal);">— GERAL</span>' : ""}</div>
           <canvas id="ch-stockist"></canvas>
         </div>
         <div class="card cyber-chamfer">
@@ -771,6 +771,29 @@ export async function renderAnalytics(container, params) {
           <canvas id="ch-timeline"></canvas>
         </div>
       </div>
+
+      ${
+        isAdmin && units.length > 1
+          ? `
+      <!-- XP por estoquista por unidade (admin) -->
+      <div class="card cyber-chamfer mb-2">
+        <div class="section-title mb-2">XP POR ESTOQUISTA — POR UNIDADE</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.5rem;">
+          ${units
+            .map(
+              (u, idx) => `
+            <div>
+              <div style="font-family:var(--font-terminal);font-size:0.65rem;color:${idx === 0 ? "var(--accent)" : "var(--accent-3,#0284c7)"};letter-spacing:0.2em;margin-bottom:0.5rem;padding-bottom:0.4rem;border-bottom:1px solid var(--border);">${u.name}</div>
+              <canvas id="ch-stockist-unit-${idx}"></canvas>
+            </div>
+          `,
+            )
+            .join("")}
+        </div>
+      </div>
+      `
+          : ""
+      }
 
       <!-- Charts row 2: Tipos + Horas -->
       <div class="grid-2 mb-2">
@@ -961,6 +984,45 @@ export async function renderAnalytics(container, params) {
       },
       options: { ...opts(), indexAxis: "y" },
     });
+
+    // XP por estoquista por unidade (admin)
+    if (isAdmin && units.length > 1) {
+      units.forEach((u, idx) => {
+        const el = document.getElementById(`ch-stockist-unit-${idx}`);
+        if (!el) return;
+        const unitStockistIds = new Set((u.stockists || []).map((s) => s.id));
+        const unitRanking = ranking
+          .filter((r) => unitStockistIds.has(r.stockistId))
+          .slice(0, 10);
+        if (unitRanking.length === 0) {
+          el.closest("div").insertAdjacentHTML(
+            "beforeend",
+            '<div class="text-muted text-xs mt-1">Sem dados no período.</div>',
+          );
+          return;
+        }
+        const colors = [C.gold, C.silver, C.bronze];
+        new Chart(el, {
+          type: "bar",
+          data: {
+            labels: unitRanking.map(
+              (r) =>
+                (stockistNames[r.stockistId] || r.stockistId).split(" ")[0],
+            ),
+            datasets: [
+              {
+                data: unitRanking.map((r) => r.xp),
+                backgroundColor: unitRanking.map(
+                  (_, i) => colors[i] || (idx === 0 ? C.green : C.blue),
+                ),
+                borderRadius: 3,
+              },
+            ],
+          },
+          options: { ...opts(), indexAxis: "y" },
+        });
+      });
+    }
 
     // XP acumulado linha
     new Chart(document.getElementById("ch-timeline"), {
