@@ -1,14 +1,12 @@
 import { getCurrentUser, getSessionContext } from "../auth.js";
 import { navigate } from "../router.js";
 import { selectOperator } from "./operator-select.js";
-import {
-  parseSpreadsheet,
-  formatDate,
-} from "../services/spreadsheet-parser.js";
+import { parseSpreadsheet } from "../services/spreadsheet-parser.js";
 import {
   createEvent,
   saveEventLocally,
   getGlobalConfig,
+  getUnit,
 } from "../services/firestore.js";
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
@@ -74,9 +72,11 @@ export async function renderOnlySeparator(container, params) {
     importMeta: null,
     vd: null,
     city: null,
+    unit: null,
   };
 
   state.config = await getGlobalConfig();
+  state.unit = await getUnit(unitId);
   state.operator = await selectOperator(unitId);
   if (!state.operator) {
     navigate("/dashboard");
@@ -142,15 +142,18 @@ function showUpload(page, state, unitId) {
       parsedOrders = orders;
       state.importMeta = result.sourceType === "pdf" ? result : null;
       if (result.sourceType === "pdf") {
-        batchInput.value = result.batchCode;
-        batchInput.readOnly = true;
-        batchErr.textContent = "";
-        fileStatus.innerHTML = `✓ PDF: lote <span class="text-accent">${result.batchCode}</span>, <span class="text-accent">${orders.length} materiais</span>, ${result.totalItems} itens. ${result.unaddressedItems > 0 ? result.unaddressedItems + " sem endereco." : ""}`;
-      } else {
-        batchInput.value = "";
-        batchInput.readOnly = false;
-        fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>. ${skipped > 0 ? skipped + " ignorados." : ""}`;
+        // PDF: auto-navega direto para seleção de cidade
+        state.orders = parsedOrders;
+        state.batchCode = result.batchCode;
+        showCitySelection(page, state, unitId, () =>
+          showChrono(page, state, unitId),
+        );
+        return;
       }
+      // Planilha: mostra campo de código do lote
+      batchInput.value = "";
+      batchInput.readOnly = false;
+      fileStatus.innerHTML = `✓ <span class="text-accent">${orders.length} pedidos</span>. ${skipped > 0 ? skipped + " ignorados." : ""}`;
       batchGroup.style.display = "flex";
       batchGroup.style.flexDirection = "column";
       checkReady();
@@ -192,54 +195,27 @@ function showUpload(page, state, unitId) {
     if (!/^\d{8}$/.test(batchInput.value.trim())) return;
     state.orders = parsedOrders;
     state.batchCode = batchInput.value.trim();
-    showConfirmation(page, state, unitId);
+    showCitySelection(page, state, unitId, () =>
+      showChrono(page, state, unitId),
+    );
   });
 }
 
-function showConfirmation(page, state, unitId) {
-  const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
-  const isPdf = state.importMeta?.sourceType === "pdf";
-  page.innerHTML = `
-    <div class="card cyber-chamfer" style="max-width:680px;">
-      <div class="section-title mb-2">CONFIRMAR LOTE</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
-        <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
-        <div class="stat-row"><span class="stat-label">${isPdf ? "MATERIAIS" : "PEDIDOS"}</span><span class="stat-value text-accent">${state.orders.length}</span></div>
-        <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value text-accent">${totalItems}</span></div>
-        <div class="stat-row"><span class="stat-label">OPERADOR</span><span class="stat-value">${state.operator.name}</span></div>
-      </div>
-      <div class="order-list mb-3">
-        ${state.orders
-          .map(
-            (o) => `
-          <div class="order-item">
-            <span class="order-code">${o.code}</span>
-            <span class="order-cycle">${o.cycle}</span>
-            <span class="text-muted text-xs">${isPdf ? o.description || "—" : o.approvedAt ? formatDate(o.approvedAt) : "—"}</span>
-            <span class="order-items">${o.items} itens</span>
-          </div>`,
-          )
-          .join("")}
-      </div>
-      <div style="display:flex;gap:0.75rem;">
-        <button id="back-btn" class="btn btn--ghost cyber-chamfer-sm">← VOLTAR</button>
-        <button id="start-btn" class="btn btn--full cyber-chamfer">⚡ INICIAR SEPARAÇÃO</button>
-      </div>
-    </div>
-  `;
-  page
-    .querySelector("#back-btn")
-    .addEventListener("click", () => showUpload(page, state, unitId));
-  page
-    .querySelector("#start-btn")
-    .addEventListener("click", () =>
-      showCitySelection(page, state, unitId, () =>
-        showChrono(page, state, unitId),
-      ),
-    );
-}
-
 function showCitySelection(page, state, unitId, onConfirm) {
+  // Detecta VD automaticamente pelo nome da unidade
+  const unitName = (state.unit?.name || "").toLowerCase();
+  const autoVd = unitName.includes("palmeira")
+    ? "VD Palmeira"
+    : unitName.includes("penedo")
+      ? "VD Penedo"
+      : null;
+
+  if (autoVd) {
+    renderCityStep(autoVd, () => showUpload(page, state, unitId));
+  } else {
+    renderVdStep();
+  }
+
   function renderVdStep() {
     page.innerHTML = `
       <div class="card cyber-chamfer" style="max-width:520px;text-align:center;">
@@ -259,11 +235,13 @@ function showCitySelection(page, state, unitId, onConfirm) {
       </div>
     `;
     page.querySelectorAll(".vd-btn").forEach((btn) => {
-      btn.addEventListener("click", () => renderCityStep(btn.dataset.vd));
+      btn.addEventListener("click", () =>
+        renderCityStep(btn.dataset.vd, renderVdStep),
+      );
     });
   }
 
-  function renderCityStep(vd) {
+  function renderCityStep(vd, onBack) {
     const cities = VD_CITIES[vd];
     page.innerHTML = `
       <div class="card cyber-chamfer" style="max-width:520px;text-align:center;">
@@ -294,10 +272,10 @@ function showCitySelection(page, state, unitId, onConfirm) {
         onConfirm();
       });
     });
-    page.querySelector("#back-vd").addEventListener("click", renderVdStep);
+    page
+      .querySelector("#back-vd")
+      .addEventListener("click", onBack || renderVdStep);
   }
-
-  renderVdStep();
 }
 
 function showChrono(page, state, unitId) {

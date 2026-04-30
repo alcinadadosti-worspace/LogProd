@@ -9,6 +9,7 @@ import {
   createEvent,
   saveEventLocally,
   getGlobalConfig,
+  getUnit,
 } from "../services/firestore.js";
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
@@ -86,9 +87,11 @@ export async function renderFunctionComplete(container, params) {
     currentChrono: null,
     vd: null,
     city: null,
+    unit: null,
   };
 
   state.config = await getGlobalConfig();
+  state.unit = await getUnit(unitId);
   state.operator = await selectOperator(unitId);
   if (!state.operator) {
     navigate("/dashboard");
@@ -168,23 +171,21 @@ function showStep1(page, state, unitId) {
       state.importMeta = result.sourceType === "pdf" ? result : null;
 
       if (result.sourceType === "pdf") {
-        batchInput.value = result.batchCode;
-        batchInput.readOnly = true;
-        batchErr.textContent = "";
-        fileStatus.innerHTML = `
-          ✓ PDF: lote <span class="text-accent">${result.batchCode}</span>,
-          <span class="text-accent">${result.orders.length} materiais</span>,
-          ${result.totalItems} itens.
-          ${result.unaddressedItems > 0 ? `<span class="text-muted">${result.unaddressedItems} sem endereco.</span>` : ""}
-        `;
-      } else {
-        batchInput.value = "";
-        batchInput.readOnly = false;
-        fileStatus.innerHTML = `
-          ✓ <span class="text-accent">${parsedOrders.length} pedidos</span> carregados.
-          ${parsedSkipped > 0 ? `<span class="text-muted">${parsedSkipped} linhas ignoradas.</span>` : ""}
-        `;
+        // PDF: auto-navega direto para seleção de cidade
+        state.orders = parsedOrders;
+        state.batchCode = result.batchCode;
+        showCitySelection(page, state, unitId, () =>
+          showStep3Sep(page, state, unitId),
+        );
+        return;
       }
+      // Planilha: mostra campo de código do lote
+      batchInput.value = "";
+      batchInput.readOnly = false;
+      fileStatus.innerHTML = `
+        ✓ <span class="text-accent">${parsedOrders.length} pedidos</span> carregados.
+        ${parsedSkipped > 0 ? `<span class="text-muted">${parsedSkipped} linhas ignoradas.</span>` : ""}
+      `;
       batchGroup.style.display = "flex";
       batchGroup.style.flexDirection = "column";
       checkReady();
@@ -231,65 +232,28 @@ function showStep1(page, state, unitId) {
     }
     state.orders = parsedOrders;
     state.batchCode = bc;
-    showStep2(page, state, unitId);
-  });
-}
-
-// ─── Step 2: Confirmação do lote ─────────────────────────────────────────────
-function showStep2(page, state, unitId) {
-  const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
-  const isPdf = state.importMeta?.sourceType === "pdf";
-  const countLabel = isPdf ? "MATERIAIS" : "PEDIDOS";
-  const listTitle = isPdf ? "MATERIAIS" : "PEDIDOS";
-
-  page.innerHTML = `
-    <div class="card cyber-chamfer" style="max-width:700px;">
-      <div class="section-title mb-2">CONFIRMAR LOTE</div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
-        <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
-        <div class="stat-row"><span class="stat-label">OPERADOR</span><span class="stat-value">${state.operator.name}</span></div>
-        <div class="stat-row"><span class="stat-label">${countLabel}</span><span class="stat-value text-accent">${state.orders.length}</span></div>
-        <div class="stat-row"><span class="stat-label">ITENS TOTAL</span><span class="stat-value text-accent">${totalItems}</span></div>
-      </div>
-
-      <div class="section-title mb-1">${listTitle}</div>
-      <div class="order-list">
-        ${state.orders
-          .map(
-            (o) => `
-          <div class="order-item">
-            <span class="order-code">${o.code}</span>
-            <span class="order-cycle">${o.cycle}</span>
-            <span class="text-muted text-xs">${isPdf ? o.description || "—" : o.approvedAt ? formatDate(o.approvedAt) : "—"}</span>
-            <span class="order-items">${o.items} itens</span>
-          </div>
-        `,
-          )
-          .join("")}
-      </div>
-
-      <div style="display:flex;gap:0.75rem;margin-top:1.5rem;">
-        <button id="back-step" class="btn btn--ghost cyber-chamfer-sm">← VOLTAR</button>
-        <button id="start-sep" class="btn btn--full cyber-chamfer">⚡ INICIAR SEPARAÇÃO</button>
-      </div>
-    </div>
-  `;
-
-  page
-    .querySelector("#back-step")
-    .addEventListener("click", () => showStep1(page, state, unitId));
-  page
-    .querySelector("#start-sep")
-    .addEventListener("click", () =>
-      showCitySelection(page, state, unitId, () =>
-        showStep3Sep(page, state, unitId),
-      ),
+    showCitySelection(page, state, unitId, () =>
+      showStep3Sep(page, state, unitId),
     );
+  });
 }
 
 // ─── City selection ─────────────────────────────────────────────────────────
 function showCitySelection(page, state, unitId, onConfirm) {
+  // Detecta VD automaticamente pelo nome da unidade
+  const unitName = (state.unit?.name || "").toLowerCase();
+  const autoVd = unitName.includes("palmeira")
+    ? "VD Palmeira"
+    : unitName.includes("penedo")
+      ? "VD Penedo"
+      : null;
+
+  if (autoVd) {
+    renderCityStep(autoVd, () => showStep1(page, state, unitId));
+  } else {
+    renderVdStep();
+  }
+
   function renderVdStep() {
     page.innerHTML = `
       <div class="card cyber-chamfer" style="max-width:520px;text-align:center;">
@@ -309,11 +273,13 @@ function showCitySelection(page, state, unitId, onConfirm) {
       </div>
     `;
     page.querySelectorAll(".vd-btn").forEach((btn) => {
-      btn.addEventListener("click", () => renderCityStep(btn.dataset.vd));
+      btn.addEventListener("click", () =>
+        renderCityStep(btn.dataset.vd, renderVdStep),
+      );
     });
   }
 
-  function renderCityStep(vd) {
+  function renderCityStep(vd, onBack) {
     const cities = VD_CITIES[vd];
     page.innerHTML = `
       <div class="card cyber-chamfer" style="max-width:520px;text-align:center;">
@@ -344,10 +310,10 @@ function showCitySelection(page, state, unitId, onConfirm) {
         onConfirm();
       });
     });
-    page.querySelector("#back-vd").addEventListener("click", renderVdStep);
+    page
+      .querySelector("#back-vd")
+      .addEventListener("click", onBack || renderVdStep);
   }
-
-  renderVdStep();
 }
 
 // ─── Step 3: Cronômetro separação ────────────────────────────────────────────
