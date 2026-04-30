@@ -24,6 +24,46 @@ function fmtTime(secs) {
 
 function fmtN(n) { return (n || 0).toLocaleString('pt-BR'); }
 
+function avg(values) {
+  const valid = values.filter(v => Number.isFinite(v));
+  return valid.length ? valid.reduce((s, v) => s + v, 0) / valid.length : 0;
+}
+
+function pct(part, total) {
+  return total > 0 ? Math.round((part / total) * 100) : 0;
+}
+
+function formatHours(hours) {
+  if (!Number.isFinite(hours) || hours <= 0) return '0h';
+  if (hours < 24) return `${hours.toFixed(1)}h`;
+  return `${(hours / 24).toFixed(1)}d`;
+}
+
+function getImportMeta(ev) {
+  return ev.batch?.importMeta || ev.singleOrder?.importMeta || null;
+}
+
+function parseBRDateTime(dateText, timeText = '') {
+  if (!dateText) return null;
+  const m = String(dateText).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return null;
+  const tm = String(timeText || '').match(/^(\d{2}):(\d{2})/);
+  return new Date(
+    Number(m[3]),
+    Number(m[2]) - 1,
+    Number(m[1]),
+    tm ? Number(tm[1]) : 0,
+    tm ? Number(tm[2]) : 0
+  );
+}
+
+function pdfReferenceDate(meta) {
+  if (!meta) return null;
+  const exportedAt = meta.exportedAt?.toDate ? meta.exportedAt.toDate() : (meta.exportedAt ? new Date(meta.exportedAt) : null);
+  if (exportedAt && !Number.isNaN(exportedAt.getTime())) return exportedAt;
+  return parseBRDateTime(meta.orderDate || meta.exportedDate, meta.exportedTime);
+}
+
 // ─── Chart color palette ─────────────────────────────────────────────────────
 const C = {
   green:  '#059669', purple: '#7c3aed', blue: '#0284c7',
@@ -225,6 +265,74 @@ export async function renderAnalytics(container, params) {
     const mostItems  = [...ranking].sort((a,b)=>b.items-a.items)[0];
     const mostOrders = [...ranking].sort((a,b)=>b.orders-a.orders)[0];
 
+    const pdfEvents = events.filter(ev => getImportMeta(ev)?.sourceType === 'pdf');
+    const pdfBatchEvents = pdfEvents.filter(ev => ev.batch);
+    const pdfMaterialRows = pdfBatchEvents.flatMap(ev => (ev.batch?.orders || []).map(o => ({ ...o, batchCode: ev.batch?.batchCode })));
+    const unaddressedRows = pdfMaterialRows.filter(o => o.addressed === false || !o.address);
+    const totalPdfItems = pdfEvents.reduce((s, ev) => {
+      const meta = getImportMeta(ev);
+      if (ev.batch?.totalItems) return s + ev.batch.totalItems;
+      if (ev.singleOrder?.items) return s + ev.singleOrder.items;
+      return s + (meta?.totalItems || meta?.declaredItems || 0);
+    }, 0);
+    const unaddressedItems = pdfEvents.reduce((s, ev) => s + (getImportMeta(ev)?.unaddressedItems || 0), 0);
+    const unaddressedBySku = {};
+    unaddressedRows.forEach(o => {
+      const key = o.sku || o.material || 'SEM SKU';
+      if (!unaddressedBySku[key]) unaddressedBySku[key] = { sku: key, description: o.description || '', qty: 0, rows: 0 };
+      unaddressedBySku[key].qty += o.items || 0;
+      unaddressedBySku[key].rows++;
+    });
+    const topUnaddressedSkus = Object.values(unaddressedBySku).sort((a, b) => b.qty - a.qty).slice(0, 5);
+    const unaddressedByBatch = pdfBatchEvents.map(ev => {
+      const rows = ev.batch?.orders || [];
+      const meta = getImportMeta(ev);
+      const qty = meta?.unaddressedItems || rows.filter(o => o.addressed === false || !o.address).reduce((s, o) => s + (o.items || 0), 0);
+      const total = ev.batch?.totalItems || meta?.totalItems || 0;
+      return { code: ev.batch?.batchCode || meta?.batchCode || '---', qty, total, pct: pct(qty, total) };
+    }).filter(b => b.qty > 0).sort((a, b) => b.qty - a.qty).slice(0, 5);
+
+    const productivityTypes = [
+      { label: 'Lote PDF', events: events.filter(ev => ev.batch && getImportMeta(ev)?.sourceType === 'pdf') },
+      { label: 'Lote manual', events: events.filter(ev => ev.batch && getImportMeta(ev)?.sourceType !== 'pdf') },
+      { label: 'Pedido PDF', events: events.filter(ev => ev.type === 'SINGLE_ORDER' && getImportMeta(ev)?.sourceType === 'pdf') },
+      { label: 'Pedido manual', events: events.filter(ev => ev.type === 'SINGLE_ORDER' && getImportMeta(ev)?.sourceType !== 'pdf') },
+    ].map(group => {
+      const stats = group.events.reduce((acc, ev) => {
+        const seconds = ev.batch
+          ? (ev.batch.separationSeconds || 0) + (ev.batch.bippingSeconds || 0)
+          : (ev.singleOrder?.separationSeconds || 0) + (ev.singleOrder?.bippingSeconds || 0);
+        const items = ev.batch?.totalItems || ev.singleOrder?.items || 0;
+        const orders = ev.batch?.totalOrders || (ev.type === 'SINGLE_ORDER' ? 1 : 0);
+        const boxes = ev.batch?.boxCodes ? Object.keys(ev.batch.boxCodes).length : (ev.singleOrder?.boxCode ? 1 : 0);
+        acc.events++;
+        acc.seconds += seconds;
+        acc.items += items;
+        acc.orders += orders;
+        acc.boxes += boxes;
+        return acc;
+      }, { label: group.label, events: 0, seconds: 0, items: 0, orders: 0, boxes: 0 });
+      stats.itemsPerMin = stats.seconds > 0 ? stats.items / (stats.seconds / 60) : 0;
+      stats.ordersPerMin = stats.seconds > 0 ? stats.orders / (stats.seconds / 60) : 0;
+      stats.boxesPerMin = stats.seconds > 0 ? stats.boxes / (stats.seconds / 60) : 0;
+      return stats;
+    });
+
+    const agingRows = pdfEvents.map(ev => {
+      const meta = getImportMeta(ev);
+      const ref = pdfReferenceDate(meta);
+      const created = toDate(ev.createdAt);
+      if (!ref || Number.isNaN(ref.getTime()) || !created || Number.isNaN(created.getTime())) return null;
+      return {
+        ref: ev.batch?.batchCode || ev.singleOrder?.orderCode || meta?.batchCode || meta?.orderCode || '---',
+        type: ev.singleOrder ? 'Pedido' : 'Lote',
+        hours: Math.max(0, (created - ref) / 36e5),
+        items: ev.batch?.totalItems || ev.singleOrder?.items || meta?.totalItems || 0,
+      };
+    }).filter(Boolean).sort((a, b) => b.hours - a.hours);
+    const avgAgingHours = avg(agingRows.map(r => r.hours));
+    const delayedOver24h = agingRows.filter(r => r.hours >= 24).length;
+
     // ── Render ────────────────────────────────────────────────────────
     page.innerHTML = `
       <!-- KPI Cards -->
@@ -238,6 +346,70 @@ export async function renderAnalytics(container, params) {
         ${kpi('🚀 VEL. MÉDIA',       avgSpeed ? avgSpeed + ' it/min' : '—',      C.green)}
         ${kpi('⏱ TEMPO MÉDIO/LOTE', fmtTime(avgBatchTime),                      C.purple)}
       </div>
+
+      <div class="grid-2 mb-2">
+        <div class="card cyber-chamfer">
+          <div class="section-title mb-2">QUALIDADE DE ENDERECAMENTO PDF</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin-bottom:0.75rem;">
+            ${miniMetric('ITENS PDF', fmtN(totalPdfItems))}
+            ${miniMetric('SEM ENDERECO', fmtN(unaddressedItems))}
+            ${miniMetric('% SEM END.', pct(unaddressedItems, totalPdfItems) + '%')}
+          </div>
+          <div class="section-title mb-1" style="font-size:0.6rem;">TOP MATERIAIS SEM ENDERECO</div>
+          ${topUnaddressedSkus.length
+            ? topUnaddressedSkus.map(x => row(`${x.sku}${x.description ? ' - ' + x.description.slice(0, 32) : ''}`, `${fmtN(x.qty)} it.`)).join('')
+            : '<div class="text-muted text-xs">Sem materiais sem endereco nos PDFs do periodo.</div>'
+          }
+          <div class="section-title mb-1 mt-2" style="font-size:0.6rem;">LOTES COM MAIOR FALHA</div>
+          ${unaddressedByBatch.length
+            ? unaddressedByBatch.map(x => row(`Lote ${x.code}`, `${fmtN(x.qty)}/${fmtN(x.total)} (${x.pct}%)`)).join('')
+            : '<div class="text-muted text-xs">Nenhum lote PDF com falha de endereco.</div>'
+          }
+        </div>
+
+        <div class="card cyber-chamfer">
+          <div class="section-title mb-2">PRODUTIVIDADE POR TIPO</div>
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:0.68rem;font-family:var(--font-terminal);">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);color:var(--muted-fg);text-align:right;">
+                  <th style="text-align:left;padding:0.4rem;">TIPO</th>
+                  <th style="padding:0.4rem;">EVENTOS</th>
+                  <th style="padding:0.4rem;">IT/MIN</th>
+                  <th style="padding:0.4rem;">PED/MIN</th>
+                  <th style="padding:0.4rem;">CAIX/MIN</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${productivityTypes.map(x => `
+                  <tr style="border-bottom:1px solid var(--border);text-align:right;">
+                    <td style="text-align:left;padding:0.4rem;color:var(--fg);">${x.label}</td>
+                    <td style="padding:0.4rem;">${fmtN(x.events)}</td>
+                    <td style="padding:0.4rem;color:var(--accent);">${x.itemsPerMin.toFixed(1)}</td>
+                    <td style="padding:0.4rem;">${x.ordersPerMin.toFixed(2)}</td>
+                    <td style="padding:0.4rem;">${x.boxesPerMin.toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      ${isAdmin ? `
+      <div class="card cyber-chamfer mb-2">
+        <div class="section-title mb-2">AGING PDF - ATRASO DE PROCESSAMENTO</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.5rem;margin-bottom:0.75rem;">
+          ${miniMetric('PDFS MEDIDOS', fmtN(agingRows.length))}
+          ${miniMetric('MEDIA ATE PROCESSAR', formatHours(avgAgingHours))}
+          ${miniMetric('ACIMA DE 24H', fmtN(delayedOver24h))}
+        </div>
+        ${agingRows.length
+          ? agingRows.slice(0, 8).map(x => row(`${x.type} ${x.ref}`, `${formatHours(x.hours)} - ${fmtN(x.items)} it.`)).join('')
+          : '<div class="text-muted text-xs">Sem PDFs com data de referencia no periodo.</div>'
+        }
+      </div>
+      ` : ''}
 
       <!-- Charts row 1: XP por estoquista + Timeline -->
       <div class="grid-2 mb-2">
@@ -508,6 +680,13 @@ function row(label, value) {
   return `<div style="display:flex;justify-content:space-between;padding:0.2rem 0;border-bottom:1px solid var(--border);font-size:0.7rem;font-family:var(--font-terminal);">
     <span style="color:var(--muted-fg);">${label}</span>
     <span style="color:var(--fg);font-weight:700;">${value}</span>
+  </div>`;
+}
+
+function miniMetric(label, value) {
+  return `<div style="border:1px solid var(--border);padding:0.55rem;text-align:center;">
+    <div style="font-family:var(--font-terminal);font-size:0.52rem;color:var(--muted-fg);letter-spacing:0.1em;margin-bottom:0.25rem;">${label}</div>
+    <div style="font-family:var(--font-display);font-size:1rem;color:var(--accent);text-shadow:var(--neon);">${value}</div>
   </div>`;
 }
 
