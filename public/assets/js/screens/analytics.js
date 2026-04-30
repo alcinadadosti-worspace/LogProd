@@ -657,6 +657,47 @@ export async function renderAnalytics(container, params) {
     });
     const hasCityData = Object.values(cityOrderMap).some((v) => v > 0);
 
+    // ── City detailed stats (orders + items + top operator) ────────────────────
+    const cityStatsMap = {};
+    Object.values(VD_CITIES_MAP)
+      .flat()
+      .forEach((c) => {
+        cityStatsMap[c] = { orders: 0, items: 0, operators: {} };
+      });
+    events.forEach((ev) => {
+      const city = ev.batch?.city || ev.singleOrder?.city;
+      const vd = ev.batch?.vd || ev.singleOrder?.vd;
+      const evOrders =
+        ev.batch?.totalOrders || (ev.type === "SINGLE_ORDER" ? 1 : 0);
+      const evItems = ev.batch?.totalItems || ev.singleOrder?.items || 0;
+      const opId = ev.stockistId;
+      const opName = stockistNames[opId] || opId;
+      if (!city || !evOrders) return;
+
+      function addToCity(c, oShare, iShare) {
+        if (!cityStatsMap[c]) return;
+        cityStatsMap[c].orders += oShare;
+        cityStatsMap[c].items += iShare;
+        if (!cityStatsMap[c].operators[opId])
+          cityStatsMap[c].operators[opId] = {
+            name: opName,
+            orders: 0,
+            items: 0,
+          };
+        cityStatsMap[c].operators[opId].orders += oShare;
+        cityStatsMap[c].operators[opId].items += iShare;
+      }
+
+      if (city !== "Várias cidades") {
+        addToCity(city, evOrders, evItems);
+      } else if (vd && VD_CITIES_MAP[vd]) {
+        const n = VD_CITIES_MAP[vd].length;
+        VD_CITIES_MAP[vd].forEach((c) =>
+          addToCity(c, evOrders / n, evItems / n),
+        );
+      }
+    });
+
     // ── Render ────────────────────────────────────────────────────────
     page.innerHTML = `
       <!-- KPI Cards -->
@@ -1237,8 +1278,66 @@ export async function renderAnalytics(container, params) {
               });
               layer.on("mouseout", () => layer.setStyle(baseStyle));
               layer.on("click", () => {
+                const stats = cityStatsMap[found.original];
+                const orders = Math.round(stats?.orders || 0);
+                const items = Math.round(stats?.items || 0);
+                const topOp = stats
+                  ? Object.values(stats.operators).sort(
+                      (a, b) => b.orders - a.orders,
+                    )[0]
+                  : null;
+
+                const accentColor =
+                  found.count > 0
+                    ? found.count / maxVal > 0.5
+                      ? "#dc2626"
+                      : found.count / maxVal > 0.25
+                        ? "#f59e0b"
+                        : "#059669"
+                    : "#6d28d9";
+
+                L.popup({ maxWidth: 260, className: "city-detail-popup" })
+                  .setLatLng(layer.getBounds().getCenter())
+                  .setContent(
+                    `
+                    <div style="font-family:monospace;min-width:200px;">
+                      <div style="font-size:13px;font-weight:bold;color:${accentColor};margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #333;">
+                        📍 ${found.original}
+                      </div>
+                      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+                        <tr>
+                          <td style="color:#999;padding:3px 0;">PEDIDOS</td>
+                          <td style="color:#fff;font-weight:bold;text-align:right;">${fmtN(orders)}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#999;padding:3px 0;">ITENS</td>
+                          <td style="color:#fff;font-weight:bold;text-align:right;">${fmtN(items)}</td>
+                        </tr>
+                        <tr>
+                          <td style="color:#999;padding:3px 0;">VD</td>
+                          <td style="color:#7c3aed;text-align:right;">${found.vd || "—"}</td>
+                        </tr>
+                      </table>
+                      ${
+                        topOp && orders > 0
+                          ? `
+                        <div style="margin-top:8px;padding-top:6px;border-top:1px solid #333;font-size:11px;">
+                          <div style="color:#999;margin-bottom:3px;">🏆 TOP OPERADOR</div>
+                          <div style="color:#f59e0b;font-weight:bold;">${topOp.name.split(" ")[0]}</div>
+                          <div style="color:#666;">${fmtN(Math.round(topOp.orders))} pedido${Math.round(topOp.orders) !== 1 ? "s" : ""} · ${fmtN(Math.round(topOp.items))} itens</div>
+                        </div>
+                      `
+                          : orders === 0
+                            ? '<div style="margin-top:6px;color:#555;font-size:11px;">Sem pedidos no período</div>'
+                            : ""
+                      }
+                    </div>
+                  `,
+                  )
+                  .openOn(_leafletMap);
+
                 _leafletMap.fitBounds(layer.getBounds(), {
-                  padding: [40, 40],
+                  padding: [60, 60],
                   maxZoom: 11,
                 });
               });
