@@ -31,6 +31,7 @@ export async function renderFunctionComplete(container, params) {
   const state = {
     operator: null,
     orders: [],
+    bippingOrders: [],
     batchCode: '',
     importMeta: null,
     sepSeconds: 0,
@@ -273,11 +274,35 @@ function showStep4AskBip(page, state, unitId) {
     </div>
   `;
 
-  page.querySelector('#bip-yes').addEventListener('click', () => showStep5Bip(page, state, unitId));
+  page.querySelector('#bip-yes').addEventListener('click', () => {
+    if (state.importMeta?.sourceType === 'pdf') {
+      showPdfOrderCount(page, state, unitId);
+    } else {
+      state.bippingOrders = [];
+      showStep5Bip(page, state, unitId);
+    }
+  });
   page.querySelector('#bip-no').addEventListener('click', () => saveOnlySeparation(page, state, unitId));
 }
 
 // ─── Save ONLY_SEPARATION ────────────────────────────────────────────────────
+function buildPdfBippingOrders(count) {
+  return Array.from({ length: count }, (_, index) => {
+    const number = String(index + 1).padStart(2, '0');
+    return {
+      code: `PEDIDO-${number}`,
+      cycle: '',
+      approvedAt: null,
+      items: 0,
+      sourceType: 'pdf-bipping-order',
+    };
+  });
+}
+
+function getBippingOrders(state) {
+  return state.bippingOrders?.length ? state.bippingOrders : state.orders;
+}
+
 function serializeOrder(o) {
   return {
     code: o.code,
@@ -291,6 +316,52 @@ function serializeOrder(o) {
     address: o.address || null,
     addressed: typeof o.addressed === 'boolean' ? o.addressed : null,
   };
+}
+
+function showPdfOrderCount(page, state, unitId) {
+  page.innerHTML = `
+    <div class="card cyber-chamfer" style="max-width:520px;">
+      <div class="section-title mb-2">QUANTIDADE DE PEDIDOS DO LOTE</div>
+      <div class="text-muted text-xs mb-3" style="letter-spacing:0.1em;">
+        LOTE <span class="text-accent">${state.batchCode}</span> · ${state.orders.reduce((s,o)=>s+o.items,0)} ITENS SEPARADOS
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">QUANTOS PEDIDOS SERÃO LACRADOS?</label>
+        <div class="input-wrapper">
+          <span class="input-prefix">&gt;</span>
+          <input id="pdf-order-count" class="input" type="number" min="1" max="999" placeholder="5" inputmode="numeric" autofocus>
+        </div>
+        <div class="input-error-msg" id="pdf-order-count-err"></div>
+      </div>
+
+      <div style="display:flex;gap:0.75rem;margin-top:1.5rem;">
+        <button id="back-step" class="btn btn--ghost cyber-chamfer-sm">← VOLTAR</button>
+        <button id="continue-bip" class="btn btn--full cyber-chamfer" disabled>CONTINUAR → BIPAGEM</button>
+      </div>
+    </div>
+  `;
+
+  const input = page.querySelector('#pdf-order-count');
+  const err = page.querySelector('#pdf-order-count-err');
+  const continueBtn = page.querySelector('#continue-bip');
+
+  function checkReady() {
+    const count = parseInt(input.value, 10);
+    const valid = Number.isInteger(count) && count >= 1 && count <= 999;
+    err.textContent = input.value && !valid ? '> INFORME UMA QUANTIDADE ENTRE 1 E 999' : '';
+    continueBtn.disabled = !valid;
+  }
+
+  input.addEventListener('input', checkReady);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !continueBtn.disabled) continueBtn.click(); });
+  page.querySelector('#back-step').addEventListener('click', () => showStep4AskBip(page, state, unitId));
+  continueBtn.addEventListener('click', () => {
+    const count = parseInt(input.value, 10);
+    if (!Number.isInteger(count) || count < 1 || count > 999) return;
+    state.bippingOrders = buildPdfBippingOrders(count);
+    showStep5Bip(page, state, unitId);
+  });
 }
 
 function serializeImportMeta(meta) {
@@ -359,6 +430,8 @@ async function saveOnlySeparation(page, state, unitId) {
 
 // ─── Step 5: Bipagem ──────────────────────────────────────────────────────────
 function showStep5Bip(page, state, unitId) {
+  const bippingOrders = getBippingOrders(state);
+  const isPdfBipping = state.importMeta?.sourceType === 'pdf';
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector('#chrono-bip');
     if (el) el.textContent = Chronometer.format(sec);
@@ -384,18 +457,18 @@ function showStep5Bip(page, state, unitId) {
         <div style="padding:0.5rem 1rem;border-bottom:1px solid var(--border);
                     display:flex;justify-content:space-between;font-size:0.65rem;
                     font-family:var(--font-terminal);color:var(--muted-fg);letter-spacing:0.15em;">
-          <span>${state.importMeta?.sourceType === 'pdf' ? 'SKU' : 'PEDIDO'}</span>
-          <span>CICLO</span>
-          <span>ITENS</span>
+          <span>PEDIDO</span>
+          <span>${isPdfBipping ? 'LOTE' : 'CICLO'}</span>
+          <span>${isPdfBipping ? 'CAIXA' : 'ITENS'}</span>
           <span>CÓD. CAIXA (10 DIG.)</span>
           <span>STATUS</span>
         </div>
         <div id="bip-list">
-          ${state.orders.map(o => `
+          ${bippingOrders.map(o => `
             <div class="order-item" id="row-${o.code}" data-code="${o.code}">
               <span class="order-code">${o.code}</span>
-              <span class="order-cycle">${o.cycle}</span>
-              <span class="order-items">${o.items}</span>
+              <span class="order-cycle">${isPdfBipping ? state.batchCode : o.cycle}</span>
+              <span class="order-items">${isPdfBipping ? '-' : o.items}</span>
               <input type="text" class="order-box-input" maxlength="10"
                      placeholder="0000000000" data-order="${o.code}" inputmode="numeric">
               <span class="order-status pending" id="status-${o.code}">PENDENTE</span>
@@ -405,7 +478,7 @@ function showStep5Bip(page, state, unitId) {
       </div>
 
       <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
-        <div class="text-sm">Lacrados: <span id="lock-count" class="text-accent">0</span>/${state.orders.length}</div>
+        <div class="text-sm">Lacrados: <span id="lock-count" class="text-accent">0</span>/${bippingOrders.length}</div>
         <div class="progress-bar-wrap" style="flex:1;"><div class="progress-bar" id="lock-progress" style="width:0%"></div></div>
       </div>
 
@@ -421,10 +494,10 @@ function showStep5Bip(page, state, unitId) {
 
   function updateProgress() {
     const count = Object.keys(lockedMap).length;
-    const pct   = Math.round((count / state.orders.length) * 100);
+    const pct   = Math.round((count / bippingOrders.length) * 100);
     page.querySelector('#lock-count').textContent  = count;
     page.querySelector('#lock-progress').style.width = pct + '%';
-    page.querySelector('#finish-bip').disabled = count < state.orders.length;
+    page.querySelector('#finish-bip').disabled = count < bippingOrders.length;
   }
 
   page.querySelector('#bip-list').addEventListener('input', (e) => {
@@ -473,7 +546,9 @@ async function saveBatch(page, state, unitId) {
 
   const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
   const totalSecs  = state.sepSeconds + (state.bipSeconds || 0);
-  const xpResult   = xpBatch({ orders: state.orders.length, items: totalItems, seconds: totalSecs, config: state.config });
+  const bippingOrders = getBippingOrders(state);
+  const orderCount = state.importMeta?.sourceType === 'pdf' ? bippingOrders.length : state.orders.length;
+  const xpResult   = xpBatch({ orders: orderCount, items: totalItems, seconds: totalSecs, config: state.config });
 
   const eventData = {
     unitId,
@@ -483,8 +558,10 @@ async function saveBatch(page, state, unitId) {
     batch: {
       batchCode: state.batchCode,
       orders: state.orders.map(serializeOrder),
+      bippingOrders: state.bippingOrders.map(serializeOrder),
       importMeta: serializeImportMeta(state.importMeta),
-      totalOrders: state.orders.length,
+      totalOrders: orderCount,
+      totalMaterials: state.orders.length,
       totalItems,
       separationSeconds: state.sepSeconds,
       separationStartedAt: state.separationStart?.toISOString() ?? null,
@@ -522,6 +599,7 @@ async function saveBatch(page, state, unitId) {
 function showSummary(page, state, xpResult, type) {
   const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
   const countLabel = state.importMeta?.sourceType === 'pdf' ? 'MATERIAIS' : 'PEDIDOS';
+  const bippingOrders = getBippingOrders(state);
 
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;">
@@ -539,6 +617,7 @@ function showSummary(page, state, xpResult, type) {
         <div class="stat-row"><span class="stat-label">TIPO</span><span class="stat-value">${type === 'BATCH' ? 'Função Completa' : 'Apenas Separação'}</span></div>
         <div class="stat-row"><span class="stat-label">LOTE</span><span class="stat-value text-accent">${state.batchCode}</span></div>
         <div class="stat-row"><span class="stat-label">${countLabel}</span><span class="stat-value">${state.orders.length}</span></div>
+        ${state.importMeta?.sourceType === 'pdf' && state.bipSeconds ? `<div class="stat-row"><span class="stat-label">PEDIDOS BIPADOS</span><span class="stat-value">${bippingOrders.length}</span></div>` : ''}
         <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value">${totalItems}</span></div>
         <div class="stat-row"><span class="stat-label">SEPARAÇÃO</span><span class="stat-value">${Chronometer.format(state.sepSeconds)}</span></div>
         ${state.bipSeconds ? `<div class="stat-row"><span class="stat-label">BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>` : ''}
