@@ -228,8 +228,13 @@ function showBatchSearch(page, state, unitId) {
       } else {
         foundInfo.innerHTML = `<span class="text-destructive">✗ Lote ${bc} não encontrado como separação salva.</span>`;
       }
-    } catch {
-      foundInfo.textContent = "> Erro na busca.";
+    } catch (err) {
+      console.error("[findSeparationBatch]", err);
+      const isIndexError =
+        err?.message?.includes("index") || err?.code === "failed-precondition";
+      foundInfo.innerHTML = isIndexError
+        ? `<span class="text-destructive">⚠ Índice do banco não configurado. Contate o suporte.</span>`
+        : `<span class="text-destructive">> Erro na busca. Verifique a conexão e tente novamente.</span>`;
     }
 
     searchBtn.disabled = false;
