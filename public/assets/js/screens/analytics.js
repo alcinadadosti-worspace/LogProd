@@ -14,6 +14,7 @@ import { stockistPhoto } from "../services/photos.js";
 const _cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 let _leafletMap = null;
+let _geoJsonCache = null;
 
 // Cidades por VD e suas coordenadas em Alagoas
 const VD_CITIES_MAP = {
@@ -1071,7 +1072,7 @@ export async function renderAnalytics(container, params) {
       </div>
     `;
 
-    // ── City heat map (Leaflet) ─────────────────────────────────────────────
+    // ── City heat map (Leaflet choropleth) ──────────────────────────────────────
     if (_leafletMap) {
       _leafletMap.remove();
       _leafletMap = null;
@@ -1081,47 +1082,177 @@ export async function renderAnalytics(container, params) {
       _leafletMap = L.map(mapEl, {
         zoomControl: true,
         attributionControl: false,
-      }).setView([-9.9, -36.7], 8);
+        scrollWheelZoom: true,
+      }).setView([-9.6, -36.7], 8);
+
       L.tileLayer(
-        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
         {
           subdomains: "abcd",
           maxZoom: 19,
         },
       ).addTo(_leafletMap);
-      L.control.attribution({ prefix: "© CartoDB · © OSM" }).addTo(_leafletMap);
+      L.control.attribution({ prefix: "© CartoDB · IBGE" }).addTo(_leafletMap);
 
       const maxVal = Math.max(
         ...Object.values(cityOrderMap).filter((v) => v > 0),
         1,
       );
-      Object.entries(cityOrderMap).forEach(([city, orders]) => {
-        const coords = CITY_COORDS[city];
-        if (!coords) return;
-        const intensity = orders > 0 ? orders / maxVal : 0;
-        const radius = intensity > 0 ? Math.round(8 + intensity * 22) : 5;
-        const color =
-          intensity > 0.7
-            ? "#dc2626"
-            : intensity > 0.4
-              ? "#f59e0b"
-              : intensity > 0.05
-                ? "#059669"
-                : "#6d28d9";
-        const fillOpacity = intensity > 0 ? 0.45 + intensity * 0.45 : 0.2;
-        L.circleMarker(coords, {
-          radius,
-          fillColor: color,
-          color: "rgba(255,255,255,0.5)",
-          weight: 1.5,
-          opacity: 0.9,
-          fillOpacity,
-        })
-          .addTo(_leafletMap)
-          .bindPopup(
-            `<div style="font-family:monospace;font-size:12px;"><strong>${city}</strong><br>${Math.round(orders)} pedido${Math.round(orders) !== 1 ? "s" : ""}</div>`,
-          );
+
+      // Nomes alternativos para correspondência com o GeoJSON do IBGE
+      const NAME_ALIASES = {
+        minador: "minador do negrao",
+        "olho dagua": "olho dagua das flores",
+        "olho d agua": "olho dagua das flores",
+      };
+
+      function normName(s) {
+        return (s || "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[''`´]/g, "")
+          .replace(/[^a-z0-9 ]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      // Monta lookup: nome normalizado → { original, count, vd }
+      const cityLookup = {};
+      Object.entries(cityOrderMap).forEach(([city, count]) => {
+        const n = normName(city);
+        const vd =
+          Object.entries(VD_CITIES_MAP).find(([, cs]) =>
+            cs.includes(city),
+          )?.[0] || "";
+        const entry = { original: city, count, vd };
+        cityLookup[n] = entry;
+        if (NAME_ALIASES[n]) cityLookup[NAME_ALIASES[n]] = entry;
       });
+
+      function getHeatColor(intensity) {
+        if (intensity <= 0) return "#6d28d9";
+        if (intensity <= 0.25) return "#1d4ed8";
+        if (intensity <= 0.5) return "#059669";
+        if (intensity <= 0.75) return "#f59e0b";
+        return "#dc2626";
+      }
+
+      // Adiciona GeoJSON assim que carregar (assíncrono para não bloquear a UI)
+      (async () => {
+        try {
+          if (!_geoJsonCache) {
+            const res = await fetch(
+              "https://servicodados.ibge.gov.br/api/v3/malhas/estados/27?formato=application/vnd.geo%2Bjson&resolucao=5",
+            );
+            _geoJsonCache = await res.json();
+          }
+
+          if (!_leafletMap) return; // mapa já foi destruído enquanto carregava
+
+          const geoLayer = L.geoJSON(_geoJsonCache, {
+            style: (feature) => {
+              const nm = normName(
+                feature.properties?.NM_MUN || feature.properties?.name || "",
+              );
+              const found = cityLookup[nm];
+              if (!found)
+                return {
+                  fillColor: "#111827",
+                  fillOpacity: 0.55,
+                  color: "rgba(255,255,255,0.06)",
+                  weight: 0.5,
+                };
+              const intensity = found.count > 0 ? found.count / maxVal : 0;
+              return {
+                fillColor: getHeatColor(intensity),
+                fillOpacity: intensity > 0 ? 0.55 + intensity * 0.35 : 0.35,
+                color: "rgba(255,255,255,0.35)",
+                weight: 1.2,
+              };
+            },
+            onEachFeature: (feature, layer) => {
+              const nm = normName(
+                feature.properties?.NM_MUN || feature.properties?.name || "",
+              );
+              const found = cityLookup[nm];
+              if (!found) return;
+
+              const count = Math.round(found.count);
+              const vdLabel = found.vd
+                ? `<span style="opacity:0.6;font-size:10px;">${found.vd}</span>`
+                : "";
+
+              layer.bindTooltip(
+                `<div style="font-family:monospace;padding:2px 4px;">
+                  <strong style="font-size:12px;">${found.original}</strong><br>
+                  ${
+                    count > 0
+                      ? `<span style="color:#${count / maxVal > 0.5 ? "dc2626" : count / maxVal > 0.25 ? "f59e0b" : "059669"};">${count} pedido${count !== 1 ? "s" : ""}</span>`
+                      : '<span style="opacity:0.5;">Sem pedidos</span>'
+                  }
+                  ${vdLabel ? "<br>" + vdLabel : ""}
+                </div>`,
+                { sticky: true, direction: "top", offset: [0, -4] },
+              );
+
+              const baseStyle = (() => {
+                const intensity = found.count > 0 ? found.count / maxVal : 0;
+                return {
+                  fillColor: getHeatColor(intensity),
+                  fillOpacity: intensity > 0 ? 0.55 + intensity * 0.35 : 0.35,
+                  color: "rgba(255,255,255,0.35)",
+                  weight: 1.2,
+                };
+              })();
+
+              layer.on("mouseover", () => {
+                layer.setStyle({
+                  ...baseStyle,
+                  weight: 2.5,
+                  fillOpacity: Math.min(0.95, baseStyle.fillOpacity + 0.2),
+                });
+                layer.bringToFront();
+              });
+              layer.on("mouseout", () => layer.setStyle(baseStyle));
+              layer.on("click", () => {
+                _leafletMap.fitBounds(layer.getBounds(), {
+                  padding: [40, 40],
+                  maxZoom: 11,
+                });
+              });
+            },
+          }).addTo(_leafletMap);
+
+          // Auto-zoom para o bounding box das cidades atendidas
+          const serviceCities = Object.values(cityOrderMap);
+          if (serviceCities.some((v) => v > 0)) {
+            const bounds = geoLayer.getBounds();
+            if (bounds.isValid())
+              _leafletMap.fitBounds(bounds, { padding: [20, 20] });
+          }
+        } catch (err) {
+          console.error("[Mapa] Erro ao carregar GeoJSON do IBGE:", err);
+          // Fallback: marcadores circulares se o GeoJSON falhar
+          Object.entries(cityOrderMap).forEach(([city, orders]) => {
+            const coords = CITY_COORDS[city];
+            if (!coords) return;
+            const intensity = orders > 0 ? orders / maxVal : 0;
+            L.circleMarker(coords, {
+              radius: intensity > 0 ? Math.round(8 + intensity * 20) : 5,
+              fillColor: getHeatColor(intensity),
+              color: "rgba(255,255,255,0.4)",
+              weight: 1.5,
+              fillOpacity: intensity > 0 ? 0.7 : 0.2,
+            })
+              .addTo(_leafletMap)
+              .bindTooltip(
+                `<strong>${city}</strong><br>${Math.round(orders)} pedidos`,
+                { sticky: true },
+              );
+          });
+        }
+      })();
     }
 
     // ── Build charts ──────────────────────────────────────────────────────────
