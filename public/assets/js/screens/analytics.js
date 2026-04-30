@@ -13,6 +13,54 @@ import { stockistPhoto } from "../services/photos.js";
 // Cache de 5 min para analytics — evita centenas de leituras desnecessárias
 const _cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
+let _leafletMap = null;
+
+// Cidades por VD e suas coordenadas em Alagoas
+const VD_CITIES_MAP = {
+  "VD Palmeira": [
+    "Palmeira dos Índios",
+    "Minador",
+    "Cacimbinhas",
+    "Igaci",
+    "Quebrangulo",
+    "Major Isidoro",
+    "Estrela de Alagoas",
+  ],
+  "VD Penedo": [
+    "Junqueiro",
+    "São Brás",
+    "Olho d'água",
+    "Porto Real do Colégio",
+    "Igreja Nova",
+    "São Sebastião",
+    "Penedo",
+    "Teotônio Vilela",
+    "Coruripe",
+    "Feliz Deserto",
+    "Piaçabuçu",
+  ],
+};
+
+const CITY_COORDS = {
+  "Palmeira dos Índios": [-9.408, -36.624],
+  Minador: [-9.267, -36.914],
+  Cacimbinhas: [-9.407, -36.99],
+  Igaci: [-9.529, -36.637],
+  Quebrangulo: [-9.321, -36.474],
+  "Major Isidoro": [-9.526, -36.961],
+  "Estrela de Alagoas": [-9.341, -36.659],
+  Junqueiro: [-9.933, -36.487],
+  "São Brás": [-10.149, -36.773],
+  "Olho d'água": [-9.543, -37.143],
+  "Porto Real do Colégio": [-10.188, -36.835],
+  "Igreja Nova": [-10.128, -36.659],
+  "São Sebastião": [-9.898, -36.892],
+  Penedo: [-10.289, -36.585],
+  "Teotônio Vilela": [-9.917, -36.357],
+  Coruripe: [-10.125, -36.177],
+  "Feliz Deserto": [-10.218, -36.321],
+  Piaçabuçu: [-10.406, -36.432],
+};
 
 function toDate(ts) {
   if (!ts) return new Date(0);
@@ -585,6 +633,29 @@ export async function renderAnalytics(container, params) {
             .sort((a, b) => b.avgH - a.avgH)
         : null;
 
+    // ── City order map ──────────────────────────────────────────
+    const cityOrderMap = {};
+    Object.values(VD_CITIES_MAP)
+      .flat()
+      .forEach((c) => {
+        cityOrderMap[c] = 0;
+      });
+    events.forEach((ev) => {
+      const city = ev.batch?.city;
+      const vd = ev.batch?.vd;
+      const orders = ev.batch?.totalOrders || 0;
+      if (!city || !orders) return;
+      if (city !== "Várias cidades") {
+        if (cityOrderMap[city] !== undefined) cityOrderMap[city] += orders;
+      } else if (vd && VD_CITIES_MAP[vd]) {
+        const share = orders / VD_CITIES_MAP[vd].length;
+        VD_CITIES_MAP[vd].forEach((c) => {
+          cityOrderMap[c] = (cityOrderMap[c] || 0) + share;
+        });
+      }
+    });
+    const hasCityData = Object.values(cityOrderMap).some((v) => v > 0);
+
     // ── Render ────────────────────────────────────────────────────────
     page.innerHTML = `
       <!-- KPI Cards -->
@@ -597,6 +668,22 @@ export async function renderAnalytics(container, params) {
         ${kpi("✅ TAREFAS", fmtN(totalTaskQty) + " un.", C.blue)}
         ${kpi("🚀 VEL. MÉDIA", avgSpeed ? avgSpeed + " it/min" : "—", C.green)}
         ${kpi("⏱ TEMPO MÉDIO/LOTE", fmtTime(avgBatchTime), C.purple)}
+      </div>
+
+      <!-- Mapa de calor de cidades -->
+      <div class="card cyber-chamfer mb-2">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+          <div class="section-title">🗺 MAPA DE CALOR — CIDADES ATENDIDAS</div>
+          <div style="display:flex;gap:1rem;font-size:0.62rem;font-family:var(--font-terminal);color:var(--muted-fg);">
+            <span style="color:#6d28d9;">● Sem pedidos</span>
+            <span style="color:#059669;">● Poucos</span>
+            <span style="color:#f59e0b;">● Médio</span>
+            <span style="color:#dc2626;">● Alto</span>
+          </div>
+        </div>
+        <div class="text-muted text-xs mb-2">Clique em um círculo para ver a cidade e a quantidade de pedidos separados</div>
+        <div id="city-heatmap" style="height:420px;border-radius:4px;overflow:hidden;"></div>
+        ${!hasCityData ? '<div class="text-muted text-xs mt-2 text-center">Nenhum lote com cidade registrada no período. A seleção de cidade é feita no momento da separação.</div>' : ""}
       </div>
 
       <div class="grid-2 mb-2">
@@ -984,7 +1071,60 @@ export async function renderAnalytics(container, params) {
       </div>
     `;
 
-    // ── Build charts ──────────────────────────────────────────────────
+    // ── City heat map (Leaflet) ─────────────────────────────────────────────
+    if (_leafletMap) {
+      _leafletMap.remove();
+      _leafletMap = null;
+    }
+    const mapEl = document.getElementById("city-heatmap");
+    if (mapEl && typeof L !== "undefined") {
+      _leafletMap = L.map(mapEl, {
+        zoomControl: true,
+        attributionControl: false,
+      }).setView([-9.9, -36.7], 8);
+      L.tileLayer(
+        "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        {
+          subdomains: "abcd",
+          maxZoom: 19,
+        },
+      ).addTo(_leafletMap);
+      L.control.attribution({ prefix: "© CartoDB · © OSM" }).addTo(_leafletMap);
+
+      const maxVal = Math.max(
+        ...Object.values(cityOrderMap).filter((v) => v > 0),
+        1,
+      );
+      Object.entries(cityOrderMap).forEach(([city, orders]) => {
+        const coords = CITY_COORDS[city];
+        if (!coords) return;
+        const intensity = orders > 0 ? orders / maxVal : 0;
+        const radius = intensity > 0 ? Math.round(8 + intensity * 22) : 5;
+        const color =
+          intensity > 0.7
+            ? "#dc2626"
+            : intensity > 0.4
+              ? "#f59e0b"
+              : intensity > 0.05
+                ? "#059669"
+                : "#6d28d9";
+        const fillOpacity = intensity > 0 ? 0.45 + intensity * 0.45 : 0.2;
+        L.circleMarker(coords, {
+          radius,
+          fillColor: color,
+          color: "rgba(255,255,255,0.5)",
+          weight: 1.5,
+          opacity: 0.9,
+          fillOpacity,
+        })
+          .addTo(_leafletMap)
+          .bindPopup(
+            `<div style="font-family:monospace;font-size:12px;"><strong>${city}</strong><br>${Math.round(orders)} pedido${Math.round(orders) !== 1 ? "s" : ""}</div>`,
+          );
+      });
+    }
+
+    // ── Build charts ──────────────────────────────────────────────────────────
     const opts = (extra = {}) => ({
       responsive: true,
       plugins: { legend: { display: false } },
