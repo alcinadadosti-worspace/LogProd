@@ -726,9 +726,6 @@ export async function renderAnalytics(container, params) {
         ${kpi("⏱ TEMPO MÉDIO/LOTE", fmtTime(avgBatchTime), C.purple)}
       </div>
 
-      ${
-        isAdmin
-          ? `
       <!-- Mapa de calor de cidades -->
       <div class="card cyber-chamfer mb-2">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
