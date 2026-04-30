@@ -6,7 +6,33 @@ import {
   createEvent,
   saveEventLocally,
   getGlobalConfig,
+  getUnit,
 } from "../services/firestore.js";
+
+const VD_CITIES = {
+  "VD Palmeira": [
+    "Palmeira dos Índios",
+    "Minador",
+    "Cacimbinhas",
+    "Igaci",
+    "Quebrangulo",
+    "Major Isidoro",
+    "Estrela de Alagoas",
+  ],
+  "VD Penedo": [
+    "Junqueiro",
+    "São Brás",
+    "Olho d'agua",
+    "Porto Real do Colégio",
+    "Igreja Nova",
+    "São Sebastião",
+    "Penedo",
+    "Teotônio Vilela",
+    "Coruripe",
+    "Feliz Deserto",
+    "Piaçabuçu",
+  ],
+};
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
 import {
@@ -48,9 +74,13 @@ export async function renderSingleOrder(container, params) {
     bipSeconds: 0,
     boxCode: "",
     config: null,
+    unit: null,
+    vd: null,
+    city: null,
   };
 
   state.config = await getGlobalConfig();
+  state.unit = await getUnit(unitId);
   state.operator = await selectOperator(unitId);
   if (!state.operator) {
     navigate("/dashboard");
@@ -147,19 +177,27 @@ function showInput(page, state, unitId) {
           items: itemCount,
           importMeta: result,
         };
-        fileStatus.innerHTML = isSingleOrderPdf
-          ? `✓ PDF: pedido <span class="text-accent">${result.orderCode}</span> importado, ${itemCount} itens.`
-          : `✓ PDF: lote <span class="text-accent">${result.batchCode}</span> importado como avulso, ${itemCount} itens.`;
-      } else {
-        const o = orders[0];
-        importedOrder = {
-          code: o.code,
-          cycle: o.cycle || "",
-          items: o.items || 0,
-          importMeta: null,
+        // PDF: auto-navega direto para seleção de cidade
+        state.order = {
+          code: importedOrder.code,
+          cycle: importedOrder.cycle,
+          items: importedOrder.items,
+          importMeta: importedOrder.importMeta,
         };
-        fileStatus.innerHTML = `✓ <span class="text-accent">${o.code}</span> importado.${skipped > 0 ? " " + skipped + " ignorados." : ""}`;
+        showCitySelection(page, state, unitId, () =>
+          showSepChrono(page, state, unitId),
+        );
+        return;
       }
+      // Planilha: mostra dados e botão de confirmar
+      const o = orders[0];
+      importedOrder = {
+        code: o.code,
+        cycle: o.cycle || "",
+        items: o.items || 0,
+        importMeta: null,
+      };
+      fileStatus.innerHTML = `✓ <span class="text-accent">${o.code}</span> importado.${skipped > 0 ? " " + skipped + " ignorados." : ""}`;
       codeInput.value = importedOrder.code;
       cycleInput.value = importedOrder.cycle;
       itemsInput.value = importedOrder.items;
@@ -194,8 +232,86 @@ function showInput(page, state, unitId) {
       items: importedOrder.items,
       importMeta: importedOrder.importMeta,
     };
-    showSepChrono(page, state, unitId);
+    showCitySelection(page, state, unitId, () =>
+      showSepChrono(page, state, unitId),
+    );
   });
+}
+
+function showCitySelection(page, state, unitId, onConfirm) {
+  const unitName = (state.unit?.name || "").toLowerCase();
+  const autoVd = unitName.includes("palmeira")
+    ? "VD Palmeira"
+    : unitName.includes("penedo")
+      ? "VD Penedo"
+      : null;
+
+  if (autoVd) {
+    renderCityStep(autoVd, () => showInput(page, state, unitId));
+  } else {
+    renderVdStep();
+  }
+
+  function renderVdStep() {
+    page.innerHTML = `
+      <div class="card cyber-chamfer" style="max-width:520px;text-align:center;">
+        <div class="section-title mb-1">DE ONDE É ESSE PEDIDO?</div>
+        <div class="text-muted text-xs mb-4" style="letter-spacing:0.1em;">PEDIDO <span class="text-accent">${state.order.code}</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+          ${Object.keys(VD_CITIES)
+            .map(
+              (vd) => `
+            <button class="btn cyber-chamfer vd-btn" data-vd="${vd}" style="padding:1.5rem 1rem;font-size:0.8rem;letter-spacing:0.1em;">
+              📍 ${vd}
+            </button>
+          `,
+            )
+            .join("")}
+        </div>
+      </div>
+    `;
+    page.querySelectorAll(".vd-btn").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        renderCityStep(btn.dataset.vd, renderVdStep),
+      );
+    });
+  }
+
+  function renderCityStep(vd, onBack) {
+    const cities = VD_CITIES[vd];
+    page.innerHTML = `
+      <div class="card cyber-chamfer" style="max-width:520px;text-align:center;">
+        <div class="section-title mb-1">DE ONDE É ESSE PEDIDO?</div>
+        <div class="text-muted text-xs mb-1" style="letter-spacing:0.1em;">PEDIDO <span class="text-accent">${state.order.code}</span> · <span class="text-accent">${vd}</span></div>
+        <div class="text-muted text-xs mb-3">Selecione a cidade de origem</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:0.6rem;margin-bottom:0.75rem;">
+          ${cities
+            .map(
+              (city) => `
+            <button class="btn cyber-chamfer city-btn" data-city="${city}" style="padding:0.75rem 0.5rem;font-size:0.73rem;">
+              ${city}
+            </button>
+          `,
+            )
+            .join("")}
+        </div>
+        <button class="btn btn--full cyber-chamfer city-btn mb-2" data-city="Várias cidades" style="background:rgba(124,58,237,0.1);">
+          🌐 VÁRIAS CIDADES
+        </button>
+        <button id="back-vd" class="btn btn--ghost cyber-chamfer-sm" style="font-size:0.7rem;">← VOLTAR</button>
+      </div>
+    `;
+    page.querySelectorAll(".city-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.vd = vd;
+        state.city = btn.dataset.city;
+        onConfirm();
+      });
+    });
+    page
+      .querySelector("#back-vd")
+      .addEventListener("click", onBack || renderVdStep);
+  }
 }
 
 function showSepChrono(page, state, unitId) {
@@ -383,6 +499,8 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
       separationSeconds: state.sepSeconds,
       bippingSeconds: withBipping ? state.bipSeconds : null,
       boxCode: withBipping ? state.boxCode : null,
+      vd: state.vd || null,
+      city: state.city || null,
     },
   };
 
