@@ -635,12 +635,26 @@ export async function renderAnalytics(container, params) {
         : null;
 
     // ── City order map ──────────────────────────────────────────
+    // Determina quais cidades mostrar: admin = todas, unidade = apenas as do seu VD
+    const unitVdKey =
+      !isAdmin && units.length > 0
+        ? Object.keys(VD_CITIES_MAP).find((vd) =>
+            (units[0]?.name || "")
+              .toLowerCase()
+              .includes(vd.toLowerCase().replace("vd ", "")),
+          )
+        : null;
+    const relevantCities = unitVdKey
+      ? VD_CITIES_MAP[unitVdKey]
+      : Object.values(VD_CITIES_MAP).flat();
+    const mapTitle = unitVdKey
+      ? `🗺 MAPA DE CALOR — ${units[0]?.name?.toUpperCase() || "MINHA UNIDADE"}`
+      : "🗺 MAPA DE CALOR — CIDADES ATENDIDAS";
+
     const cityOrderMap = {};
-    Object.values(VD_CITIES_MAP)
-      .flat()
-      .forEach((c) => {
-        cityOrderMap[c] = 0;
-      });
+    relevantCities.forEach((c) => {
+      cityOrderMap[c] = 0;
+    });
     events.forEach((ev) => {
       // inclui tanto lotes quanto pedidos avulsos
       const city = ev.batch?.city || ev.singleOrder?.city;
@@ -661,11 +675,9 @@ export async function renderAnalytics(container, params) {
 
     // ── City detailed stats (orders + items + top operator) ────────────────────
     const cityStatsMap = {};
-    Object.values(VD_CITIES_MAP)
-      .flat()
-      .forEach((c) => {
-        cityStatsMap[c] = { orders: 0, items: 0, operators: {} };
-      });
+    relevantCities.forEach((c) => {
+      cityStatsMap[c] = { orders: 0, items: 0, operators: {} };
+    });
     events.forEach((ev) => {
       const city = ev.batch?.city || ev.singleOrder?.city;
       const vd = ev.batch?.vd || ev.singleOrder?.vd;
@@ -717,10 +729,10 @@ export async function renderAnalytics(container, params) {
       ${
         isAdmin
           ? `
-      <!-- Mapa de calor de cidades (somente admin) -->
+      <!-- Mapa de calor de cidades -->
       <div class="card cyber-chamfer mb-2">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
-          <div class="section-title">🗺 MAPA DE CALOR — CIDADES ATENDIDAS</div>
+          <div class="section-title">${mapTitle}</div>
           <div style="display:flex;gap:1rem;font-size:0.62rem;font-family:var(--font-terminal);color:var(--muted-fg);">
             <span style="color:#6d28d9;">● Sem pedidos</span>
             <span style="color:#1d4ed8;">● Baixo</span>
@@ -733,9 +745,6 @@ export async function renderAnalytics(container, params) {
         <div id="city-heatmap" style="height:440px;border-radius:4px;overflow:hidden;"></div>
         ${!hasCityData ? '<div class="text-muted text-xs mt-2 text-center">Nenhum lote ou pedido com cidade registrada no período. A seleção de cidade é feita no momento da separação.</div>' : ""}
       </div>
-      `
-          : ""
-      }
 
       <div class="grid-2 mb-2">
         <div class="card cyber-chamfer">
@@ -1128,7 +1137,7 @@ export async function renderAnalytics(container, params) {
       _leafletMap = null;
     }
     const mapEl = document.getElementById("city-heatmap");
-    if (isAdmin && mapEl && typeof L !== "undefined") {
+    if (mapEl && typeof L !== "undefined") {
       _leafletMap = L.map(mapEl, {
         zoomControl: true,
         attributionControl: false,
