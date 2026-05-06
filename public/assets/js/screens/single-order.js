@@ -7,6 +7,7 @@ import {
   saveEventLocally,
   getGlobalConfig,
   getUnit,
+  findSeparationOrder,
 } from "../services/firestore.js";
 
 const VD_CITIES = {
@@ -177,7 +178,17 @@ function showInput(page, state, unitId) {
           items: itemCount,
           importMeta: result,
         };
-        // PDF: auto-navega direto para seleção de cidade
+        // PDF: verifica duplicata antes de navegar
+        fileStatus.textContent = "Verificando pedido...";
+        const existing = await findSeparationOrder(unitId, code).catch(() => null);
+        if (existing) {
+          const so = existing.singleOrder || {};
+          fileErr.textContent = so.boxCode
+            ? `> PEDIDO ${code} JÁ FOI BIPADO`
+            : `> PEDIDO ${code} JÁ REGISTRADO`;
+          fileStatus.textContent = "";
+          return;
+        }
         state.order = {
           code: importedOrder.code,
           cycle: importedOrder.cycle,
@@ -224,8 +235,20 @@ function showInput(page, state, unitId) {
     if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
   });
 
-  confirmBtn.addEventListener("click", () => {
+  confirmBtn.addEventListener("click", async () => {
     if (!importedOrder) return;
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "VERIFICANDO...";
+    const existing = await findSeparationOrder(unitId, importedOrder.code).catch(() => null);
+    if (existing) {
+      const so = existing.singleOrder || {};
+      fileErr.textContent = so.boxCode
+        ? `> PEDIDO ${importedOrder.code} JÁ FOI BIPADO`
+        : `> PEDIDO ${importedOrder.code} JÁ REGISTRADO`;
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = "CONFIRMAR → INICIAR";
+      return;
+    }
     state.order = {
       code: importedOrder.code,
       cycle: importedOrder.cycle,

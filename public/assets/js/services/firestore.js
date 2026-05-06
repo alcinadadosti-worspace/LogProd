@@ -280,6 +280,43 @@ export async function findSeparationOrder(unitId, orderCode) {
   return local ?? null;
 }
 
+/**
+ * Checks if any batch event (BATCH, ONLY_SEPARATION, ONLY_BIPPING) already exists
+ * for this batchCode in the unit. Returns the found event (with .type) or null.
+ */
+export async function findExistingBatch(unitId, batchCode) {
+  try { await flushPendingEvents(); } catch { /* ignore */ }
+
+  const types = ['BATCH', 'ONLY_SEPARATION', 'ONLY_BIPPING'];
+  try {
+    const snaps = await Promise.all(types.map(type =>
+      getDocs(query(
+        collection(db, 'events'),
+        where('unitId', '==', unitId),
+        where('type', '==', type),
+        where('batch.batchCode', '==', batchCode),
+        limit(1),
+      ))
+    ));
+    for (let i = 0; i < types.length; i++) {
+      if (!snaps[i].empty) {
+        const d = snaps[i].docs[0];
+        return { type: types[i], id: d.id, ...d.data() };
+      }
+    }
+  } catch (err) {
+    console.error('[findExistingBatch]', err);
+  }
+
+  const pending = getPendingEvents();
+  const local = pending.find(ev =>
+    ev.unitId === unitId &&
+    types.includes(ev.type) &&
+    ev.batch?.batchCode === batchCode
+  );
+  return local ?? null;
+}
+
 /** Aggregate XP + stats per stockist for ranking */
 export function computeRanking(events) {
   const map = {};

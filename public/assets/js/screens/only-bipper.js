@@ -211,18 +211,22 @@ function showBatchSearch(page, state, unitId) {
       const ev = await findSeparationOrder(unitId, orderCode);
       if (ev) {
         const so = ev.singleOrder || {};
-        orderFoundInfo.innerHTML = `✓ Pedido <span class="text-accent">${orderCode}</span> encontrado
-          &mdash; ${so.items || 1} ${so.items === 1 ? "item" : "itens"}${so.cycle ? " · Ciclo " + so.cycle : ""}`;
-        state.batchCode = "";
-        state.orders = [];
-        state.bippingOrders = [];
-        state.importMeta = null;
-        state.singleOrder = {
-          code: orderCode,
-          cycle: so.cycle || "",
-          items: so.items || 1,
-        };
-        useOrderFound.style.display = "block";
+        if (so.boxCode) {
+          orderFoundInfo.innerHTML = `<span class="text-destructive">✗ Pedido ${orderCode} já foi bipado.</span>`;
+        } else {
+          orderFoundInfo.innerHTML = `✓ Pedido <span class="text-accent">${orderCode}</span> encontrado
+            &mdash; ${so.items || 1} ${so.items === 1 ? "item" : "itens"}${so.cycle ? " · Ciclo " + so.cycle : ""}`;
+          state.batchCode = "";
+          state.orders = [];
+          state.bippingOrders = [];
+          state.importMeta = null;
+          state.singleOrder = {
+            code: orderCode,
+            cycle: so.cycle || "",
+            items: so.items || 1,
+          };
+          useOrderFound.style.display = "block";
+        }
       } else {
         orderFoundInfo.innerHTML = `<span class="text-destructive">✗ Pedido ${orderCode} não encontrado como separação registrada.</span>`;
       }
@@ -509,21 +513,32 @@ function showBippingChrono(page, state, unitId) {
     if (!inp.classList.contains("order-box-input")) return;
     const code = inp.dataset.order;
     inp.value = inp.value.replace(/\D/g, "");
-    if (/^\d{10}$/.test(inp.value)) {
-      lockedMap[code] = inp.value;
+    const val = inp.value;
+    const statusEl = page.querySelector(`#status-${code}`);
+    if (/^\d{10}$/.test(val)) {
+      const dup = Object.entries(lockedMap).find(([k, v]) => v === val && k !== code);
+      if (dup) {
+        if (lockedMap[code]) { delete lockedMap[code]; inp.classList.remove("validated"); }
+        statusEl.textContent = "✗ JÁ USADA";
+        statusEl.className = "order-status";
+        statusEl.style.color = "var(--destructive)";
+        updateProgress();
+        return;
+      }
+      statusEl.style.color = "";
+      lockedMap[code] = val;
       inp.classList.add("validated");
       playConfirm();
-      page.querySelector(`#status-${code}`).textContent = "✓ LACRADO";
-      page.querySelector(`#status-${code}`).className = "order-status locked";
-      const next = [
-        ...page.querySelectorAll(".order-box-input:not(.validated)"),
-      ];
+      statusEl.textContent = "✓ LACRADO";
+      statusEl.className = "order-status locked";
+      const next = [...page.querySelectorAll(".order-box-input:not(.validated)")];
       if (next[0]) next[0].focus();
-    } else if (lockedMap[code]) {
-      delete lockedMap[code];
+    } else {
+      if (lockedMap[code]) delete lockedMap[code];
       inp.classList.remove("validated");
-      page.querySelector(`#status-${code}`).textContent = "PENDENTE";
-      page.querySelector(`#status-${code}`).className = "order-status pending";
+      statusEl.textContent = "PENDENTE";
+      statusEl.className = "order-status pending";
+      statusEl.style.color = "";
     }
     updateProgress();
     finishBipping();

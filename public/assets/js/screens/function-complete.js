@@ -10,6 +10,7 @@ import {
   saveEventLocally,
   getGlobalConfig,
   getUnit,
+  findExistingBatch,
 } from "../services/firestore.js";
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
@@ -174,6 +175,17 @@ function showStep1(page, state, unitId) {
         // PDF: auto-navega direto para seleção de cidade
         state.orders = parsedOrders;
         state.batchCode = result.batchCode;
+        fileStatus.textContent = "Verificando lote...";
+        const existing = await findExistingBatch(unitId, result.batchCode).catch(() => null);
+        if (existing) {
+          fileErr.textContent = existing.type === "BATCH"
+            ? `> LOTE ${result.batchCode} JÁ REGISTRADO COMO COMPLETO`
+            : existing.type === "ONLY_BIPPING"
+            ? `> LOTE ${result.batchCode} JÁ FOI BIPADO`
+            : `> LOTE ${result.batchCode} JÁ SEPARADO — USE "APENAS BIPADOR" PARA BIPAR`;
+          fileStatus.textContent = "";
+          return;
+        }
         showCitySelection(page, state, unitId, () =>
           showStep3Sep(page, state, unitId),
         );
@@ -224,10 +236,23 @@ function showStep1(page, state, unitId) {
     checkReady();
   });
 
-  confirmBtn.addEventListener("click", () => {
+  confirmBtn.addEventListener("click", async () => {
     const bc = batchInput.value.trim();
     if (!/^\d{8}$/.test(bc)) {
       batchErr.textContent = "> CÓDIGO DEVE TER 8 DÍGITOS";
+      return;
+    }
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = "VERIFICANDO...";
+    const existing = await findExistingBatch(unitId, bc).catch(() => null);
+    if (existing) {
+      batchErr.textContent = existing.type === "BATCH"
+        ? `> LOTE ${bc} JÁ REGISTRADO COMO COMPLETO`
+        : existing.type === "ONLY_BIPPING"
+        ? `> LOTE ${bc} JÁ FOI BIPADO`
+        : `> LOTE ${bc} JÁ SEPARADO — USE "APENAS BIPADOR" PARA BIPAR`;
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = "CONFIRMAR E CONTINUAR →";
       return;
     }
     state.orders = parsedOrders;
@@ -662,26 +687,36 @@ function showStep5Bip(page, state, unitId) {
     if (val.length > 10) val = val.slice(0, 10);
     inp.value = val;
 
+    const statusEl = page.querySelector(`#status-${code}`);
     if (/^\d{10}$/.test(val)) {
+      const dup = Object.entries(lockedMap).find(([k, v]) => v === val && k !== code);
+      if (dup) {
+        if (lockedMap[code]) { delete lockedMap[code]; inp.classList.remove("validated"); }
+        statusEl.textContent = "✗ JÁ USADA";
+        statusEl.className = "order-status";
+        statusEl.style.color = "var(--destructive)";
+        updateProgress();
+        return;
+      }
+      statusEl.style.color = "";
       lockedMap[code] = val;
       inp.classList.add("validated");
       playConfirm();
-      const statusEl = page.querySelector(`#status-${code}`);
       statusEl.textContent = "✓ LACRADO";
       statusEl.className = "order-status locked";
       page
         .querySelector(`#row-${code}`)
         ?.style.setProperty("border-left", "3px solid var(--accent)");
-      // Focus next
       const inputs = [
         ...page.querySelectorAll(".order-box-input:not(.validated)"),
       ];
       if (inputs[0]) inputs[0].focus();
-    } else if (lockedMap[code]) {
-      delete lockedMap[code];
+    } else {
+      if (lockedMap[code]) delete lockedMap[code];
       inp.classList.remove("validated");
-      page.querySelector(`#status-${code}`).textContent = "PENDENTE";
-      page.querySelector(`#status-${code}`).className = "order-status pending";
+      statusEl.textContent = "PENDENTE";
+      statusEl.className = "order-status pending";
+      statusEl.style.color = "";
     }
 
     updateProgress();
