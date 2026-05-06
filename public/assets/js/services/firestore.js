@@ -292,6 +292,7 @@ export function computeRanking(events) {
         items: 0,
         orders: 0,
         batches: 0,
+        boxes: 0,
         totalSecs: 0,
       };
     }
@@ -304,14 +305,17 @@ export function computeRanking(events) {
       s.batches++;
       s.orders += b.totalOrders || 0;
       s.totalSecs += (b.separationSeconds || 0) + (b.bippingSeconds || 0);
-      if (ev.type === "BATCH" || ev.type === "ONLY_BIPPING")
+      if (ev.type === "BATCH" || ev.type === "ONLY_BIPPING") {
         s.items += b.totalItems || 0;
+        s.boxes += Object.keys(b.boxCodes || {}).length;
+      }
     }
     if (ev.type === "SINGLE_ORDER") {
       const so = ev.singleOrder || ev.batch || {};
       s.orders++;
       s.items += so.items || so.totalItems || 1;
       s.totalSecs += (so.separationSeconds || 0) + (so.bippingSeconds || 0);
+      if (so.boxCode) s.boxes++;
     }
   }
   return Object.values(map)
