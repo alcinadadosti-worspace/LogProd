@@ -531,7 +531,7 @@ export async function renderRankingDisplay(container, params) {
 
   // ── Slide: Ranking ─────────────────────────────────────────────────────────
   function renderRankingSlide(content) {
-    const ranking = computeRanking(events);
+    const ranking = computeRanking(events).filter(r => stockistMap[r.stockistId]);
 
     if (ranking.length === 0) {
       content.innerHTML = `<div class="tela-empty slide-enter">SEM EVENTOS NO PERÍODO</div>`;
@@ -663,7 +663,7 @@ export async function renderRankingDisplay(container, params) {
 
   // ── Slide: Destaques MVP ───────────────────────────────────────────────────
   function renderMvpSlide(content) {
-    const ranking = computeRanking(events);
+    const ranking = computeRanking(events).filter(r => stockistMap[r.stockistId]);
     if (!ranking.length) {
       content.innerHTML = `<div class="tela-empty slide-enter">SEM DADOS NO PERÍODO</div>`;
       return;

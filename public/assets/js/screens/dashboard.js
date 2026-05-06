@@ -207,10 +207,11 @@ async function loadRanking(el, unit, period) {
   try {
     const { startDate, endDate } = dateRangeForPeriod(period);
     const events = await getEvents({ unitId: unit.id, startDate, endDate, maxDocs: 500 });
-    const ranking = computeRanking(events);
 
     const stockistMap = {};
     (unit.stockists || []).forEach(s => { stockistMap[s.id] = s.name; });
+
+    const ranking = computeRanking(events).filter(r => stockistMap[r.stockistId]);
 
     if (ranking.length === 0) {
       rankCard.innerHTML = '<div class="text-center text-muted text-sm" style="padding:2rem;">Nenhum evento registrado neste período.</div>';
