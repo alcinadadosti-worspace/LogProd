@@ -310,7 +310,7 @@ export async function renderAnalytics(container, params) {
       events.length > 0 ? Math.round((bonusEvents / events.length) * 100) : 0;
 
     // ── Ranking ───────────────────────────────────────────────────────
-    const ranking = computeRanking(events);
+    const ranking = computeRanking(events).filter(r => stockistNames[r.stockistId]);
 
     // ── XP by day (sort chronologically) ─────────────────────────────
     const byDayMap = {};
