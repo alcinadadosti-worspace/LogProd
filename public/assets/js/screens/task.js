@@ -3,7 +3,7 @@ import { navigate } from '../router.js';
 import { selectOperator } from './operator-select.js';
 import { createEvent, saveEventLocally, getEvents } from '../services/firestore.js';
 import { xpTask } from '../services/xp-engine.js';
-import { playConfirm, playAuraa } from '../services/sound-engine.js';
+import { playPosBipagem, playAuraa } from '../services/sound-engine.js';
 
 export async function renderTask(container, params) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -116,7 +116,7 @@ async function showConfirmStep(page, state) {
   confirmBtn.addEventListener('click', async () => {
     confirmBtn.disabled    = true;
     confirmBtn.textContent = 'SALVANDO...';
-    playConfirm();
+    playPosBipagem();
 
     const eventData = {
       unitId:     state.unitId,

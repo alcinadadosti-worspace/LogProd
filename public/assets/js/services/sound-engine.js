@@ -98,13 +98,16 @@ export function playTick() {
 // ─── Sons de arquivo (/audio/) ───────────────────────────────────────────────
 
 const _audioCache = {};
+['SenhaIncorreta', 'PosBipagem', 'auraa'].forEach(name => {
+  const a = new Audio(`/audio/${name}.mp3`);
+  a.preload = 'auto';
+  _audioCache[name] = a;
+});
+
 function _playFile(name) {
   if (muted) return;
-  if (!_audioCache[name]) {
-    _audioCache[name] = new Audio(`/audio/${name}.mp3`);
-    _audioCache[name].preload = 'auto';
-  }
   const a = _audioCache[name];
+  if (!a) return;
   a.currentTime = 0;
   a.play().catch(() => {});
 }

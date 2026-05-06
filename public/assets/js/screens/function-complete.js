@@ -16,7 +16,7 @@ import { Chronometer } from "../components/chronometer.js";
 import {
   playStart,
   playConfirm,
-  playPosBipagem,
+  playComplete,
   playAuraa,
 } from "../services/sound-engine.js";
 
@@ -798,7 +798,7 @@ function showSummary(page, state, xpResult, type) {
   `;
 
   // Count-up animation
-  playPosBipagem();
+  playComplete();
   const xpEl = page.querySelector("#xp-count");
   let current = 0;
   const target = xpResult.total;

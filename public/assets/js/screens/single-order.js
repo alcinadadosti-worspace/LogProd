@@ -38,7 +38,7 @@ import { Chronometer } from "../components/chronometer.js";
 import {
   playStart,
   playConfirm,
-  playPosBipagem,
+  playComplete,
   playAuraa,
 } from "../services/sound-engine.js";
 
@@ -542,7 +542,7 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
     return page.querySelector("#xp-count");
   })();
 
-  playPosBipagem();
+  playComplete();
   let cur = 0;
   const target = xpResult.total;
   const step = Math.ceil(target / 60);
