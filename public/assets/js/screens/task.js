@@ -3,7 +3,7 @@ import { navigate } from '../router.js';
 import { selectOperator } from './operator-select.js';
 import { createEvent, saveEventLocally, getEvents } from '../services/firestore.js';
 import { xpTask } from '../services/xp-engine.js';
-import { playConfirm, playXP } from '../services/sound-engine.js';
+import { playConfirm, playAuraa } from '../services/sound-engine.js';
 
 export async function renderTask(container, params) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -170,6 +170,6 @@ function showSummary(page, state, xpTotal) {
   const t = setInterval(() => {
     cur = Math.min(cur + step, xpTotal);
     xpEl.textContent = cur.toLocaleString('pt-BR');
-    if (cur >= xpTotal) { clearInterval(t); playXP(); }
+    if (cur >= xpTotal) { clearInterval(t); playAuraa(); }
   }, 25);
 }

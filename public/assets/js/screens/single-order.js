@@ -38,8 +38,8 @@ import { Chronometer } from "../components/chronometer.js";
 import {
   playStart,
   playConfirm,
-  playComplete,
-  playXP,
+  playPosBipagem,
+  playAuraa,
 } from "../services/sound-engine.js";
 
 export async function renderSingleOrder(container, params) {
@@ -542,7 +542,7 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
     return page.querySelector("#xp-count");
   })();
 
-  playComplete();
+  playPosBipagem();
   let cur = 0;
   const target = xpResult.total;
   const step = Math.ceil(target / 60);
@@ -551,7 +551,7 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
     xpEl.textContent = cur.toLocaleString("pt-BR");
     if (cur >= target) {
       clearInterval(t);
-      playXP();
+      playAuraa();
     }
   }, 25);
 }

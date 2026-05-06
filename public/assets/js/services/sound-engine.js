@@ -94,3 +94,26 @@ export function playRankUp() {
 export function playTick() {
   osc('sine', 1760, 0, 0.04, 0.08);
 }
+
+// ─── Sons de arquivo (/audio/) ───────────────────────────────────────────────
+
+const _audioCache = {};
+function _playFile(name) {
+  if (muted) return;
+  if (!_audioCache[name]) {
+    _audioCache[name] = new Audio(`/audio/${name}.mp3`);
+    _audioCache[name].preload = 'auto';
+  }
+  const a = _audioCache[name];
+  a.currentTime = 0;
+  a.play().catch(() => {});
+}
+
+/** PIN ou senha digitados errados */
+export function playSenhaIncorreta() { _playFile('SenhaIncorreta'); }
+
+/** Finalização de bipagem */
+export function playPosBipagem() { _playFile('PosBipagem'); }
+
+/** Tela de resumo de XP (tarefa ou lote completo) */
+export function playAuraa() { _playFile('auraa'); }

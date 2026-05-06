@@ -1,5 +1,6 @@
 import { loginWithEmail } from '../auth.js';
 import { navigate } from '../router.js';
+import { playSenhaIncorreta } from '../services/sound-engine.js';
 
 export async function renderLogin(container) {
   container.innerHTML = `
@@ -106,6 +107,7 @@ export async function renderLogin(container) {
         'auth/invalid-credential': '> CREDENCIAIS INVÁLIDAS',
       };
       showError(map[err.code] || '> FALHA NA AUTENTICAÇÃO');
+      playSenhaIncorreta();
     } finally {
       setLoading(false);
     }

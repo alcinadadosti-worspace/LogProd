@@ -16,8 +16,8 @@ import { Chronometer } from "../components/chronometer.js";
 import {
   playStart,
   playConfirm,
-  playComplete,
-  playXP,
+  playPosBipagem,
+  playAuraa,
 } from "../services/sound-engine.js";
 
 const VD_CITIES = {
@@ -798,7 +798,7 @@ function showSummary(page, state, xpResult, type) {
   `;
 
   // Count-up animation
-  playComplete();
+  playPosBipagem();
   const xpEl = page.querySelector("#xp-count");
   let current = 0;
   const target = xpResult.total;
@@ -808,7 +808,7 @@ function showSummary(page, state, xpResult, type) {
     xpEl.textContent = current.toLocaleString("pt-BR");
     if (current >= target) {
       clearInterval(timer);
-      playXP();
+      playAuraa();
     }
   }, 25);
 }

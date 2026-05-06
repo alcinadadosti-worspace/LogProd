@@ -10,7 +10,7 @@ import {
 } from "../services/firestore.js";
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
-import { playStart, playComplete, playXP } from "../services/sound-engine.js";
+import { playStart, playComplete, playAuraa } from "../services/sound-engine.js";
 
 const VD_CITIES = {
   "VD Palmeira": [
@@ -441,7 +441,7 @@ function showSummary(page, state, xpResult) {
     xpEl.textContent = cur.toLocaleString("pt-BR");
     if (cur >= target) {
       clearInterval(t);
-      playXP();
+      playAuraa();
     }
   }, 25);
 }

@@ -1,6 +1,6 @@
 import { validatePin, getCurrentUser } from '../auth.js';
 import { navigate } from '../router.js';
-import { playError } from '../services/sound-engine.js';
+import { playSenhaIncorreta } from '../services/sound-engine.js';
 
 export async function renderUnitPin(container) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -93,7 +93,7 @@ export async function renderUnitPin(container) {
       const ctx = await validatePin(pinValue);
       if (!ctx) {
         errEl.textContent = '⚠ ACESSO NEGADO';
-        playError();
+        playSenhaIncorreta();
         errEl.classList.add('rgb-shift');
         setTimeout(() => errEl.classList.remove('rgb-shift'), 1500);
         pinValue = '';
