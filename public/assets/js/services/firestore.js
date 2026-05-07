@@ -265,29 +265,39 @@ export async function findSeparationOrder(unitId, orderCode) {
       const d = snap.docs[0];
       return { id: d.id, ...d.data() };
     }
+    // Query OK — não encontrado; verifica localStorage
+    const pending = getPendingEvents();
+    return pending.find(ev =>
+      ev.unitId === unitId && ev.type === "SINGLE_ORDER" && ev.singleOrder?.orderCode === orderCode
+    ) ?? null;
   } catch (err) {
     console.error("[findSeparationOrder] Erro no Firestore:", err);
+    // Fallback: scan via getEvents (usa cache quando disponível)
+    try {
+      const events = await getEvents({ unitId, maxDocs: 500 });
+      const found = events.find(ev =>
+        ev.type === "SINGLE_ORDER" && ev.singleOrder?.orderCode === orderCode
+      );
+      if (found) return found;
+    } catch { /* ignore */ }
+    const pending = getPendingEvents();
+    return pending.find(ev =>
+      ev.unitId === unitId && ev.type === "SINGLE_ORDER" && ev.singleOrder?.orderCode === orderCode
+    ) ?? null;
   }
-
-  // Fallback: busca nos eventos pendentes no localStorage
-  const pending = getPendingEvents();
-  const local = pending.find(
-    (ev) =>
-      ev.unitId === unitId &&
-      ev.type === "SINGLE_ORDER" &&
-      ev.singleOrder?.orderCode === orderCode,
-  );
-  return local ?? null;
 }
 
 /**
  * Checks if any batch event (BATCH, ONLY_SEPARATION, ONLY_BIPPING) already exists
  * for this batchCode in the unit. Returns the found event (with .type) or null.
+ * Falls back to a getEvents scan when the composite index query fails.
  */
 export async function findExistingBatch(unitId, batchCode) {
   try { await flushPendingEvents(); } catch { /* ignore */ }
 
   const types = ['BATCH', 'ONLY_SEPARATION', 'ONLY_BIPPING'];
+
+  // Primary: composite index query
   try {
     const snaps = await Promise.all(types.map(type =>
       getDocs(query(
@@ -304,17 +314,47 @@ export async function findExistingBatch(unitId, batchCode) {
         return { type: types[i], id: d.id, ...d.data() };
       }
     }
-  } catch (err) {
-    console.error('[findExistingBatch]', err);
+    // Queries succeeded — not found; also check localStorage
+    const pending = getPendingEvents();
+    return pending.find(ev =>
+      ev.unitId === unitId && types.includes(ev.type) && ev.batch?.batchCode === batchCode
+    ) ?? null;
+  } catch {
+    // Fallback: scan via getEvents (uses the in-memory cache when available)
+    try {
+      const events = await getEvents({ unitId, maxDocs: 500 });
+      const found = events.find(ev =>
+        types.includes(ev.type) && ev.batch?.batchCode === batchCode
+      );
+      if (found) return found;
+    } catch { /* ignore */ }
+    const pending = getPendingEvents();
+    return pending.find(ev =>
+      ev.unitId === unitId && types.includes(ev.type) && ev.batch?.batchCode === batchCode
+    ) ?? null;
   }
+}
 
-  const pending = getPendingEvents();
-  const local = pending.find(ev =>
-    ev.unitId === unitId &&
-    types.includes(ev.type) &&
-    ev.batch?.batchCode === batchCode
-  );
-  return local ?? null;
+/**
+ * Returns a Set of all box codes already registered for this unit (up to 500 events).
+ * Used to block cross-session box code reuse.
+ */
+export async function getUsedBoxCodes(unitId) {
+  try {
+    const events = await getEvents({ unitId, maxDocs: 500 });
+    const codes = new Set();
+    for (const ev of events) {
+      if (ev.batch?.boxCodes) {
+        Object.values(ev.batch.boxCodes).forEach(c => { if (c) codes.add(String(c)); });
+      }
+      if (ev.singleOrder?.boxCode) {
+        codes.add(String(ev.singleOrder.boxCode));
+      }
+    }
+    return codes;
+  } catch {
+    return new Set();
+  }
 }
 
 /** Aggregate XP + stats per stockist for ranking */

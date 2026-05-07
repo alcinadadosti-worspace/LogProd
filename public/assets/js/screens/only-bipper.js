@@ -8,6 +8,7 @@ import {
   getGlobalConfig,
   findSeparationBatch,
   findSeparationOrder,
+  getUsedBoxCodes,
 } from "../services/firestore.js";
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
@@ -423,7 +424,9 @@ function showBatchOrderCount(page, state, unitId, onBack) {
   });
 }
 
-function showBippingChrono(page, state, unitId) {
+async function showBippingChrono(page, state, unitId) {
+  page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
+  const usedBoxCodes = await getUsedBoxCodes(unitId);
   const bippingOrders = getBippingOrders(state);
   const isPdfBipping = state.importMeta?.sourceType === "pdf";
   const showBatchColumn = isPdfBipping || state.bippingOrders?.length > 0;
@@ -516,6 +519,14 @@ function showBippingChrono(page, state, unitId) {
     const val = inp.value;
     const statusEl = page.querySelector(`#status-${code}`);
     if (/^\d{10}$/.test(val)) {
+      if (usedBoxCodes.has(val)) {
+        if (lockedMap[code]) { delete lockedMap[code]; inp.classList.remove("validated"); }
+        statusEl.textContent = "✗ JÁ REGISTRADA";
+        statusEl.className = "order-status";
+        statusEl.style.color = "var(--destructive)";
+        updateProgress();
+        return;
+      }
       const dup = Object.entries(lockedMap).find(([k, v]) => v === val && k !== code);
       if (dup) {
         if (lockedMap[code]) { delete lockedMap[code]; inp.classList.remove("validated"); }
@@ -549,7 +560,10 @@ function showBippingChrono(page, state, unitId) {
   return () => chrono.stop();
 }
 
-function showSingleOrderBipping(page, state, unitId) {
+async function showSingleOrderBipping(page, state, unitId) {
+  page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
+  const usedBoxCodes = await getUsedBoxCodes(unitId);
+
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
@@ -592,6 +606,11 @@ function showSingleOrderBipping(page, state, unitId) {
 
   async function finishBipping() {
     if (isFinishing || !/^\d{10}$/.test(boxInput.value)) return;
+    if (usedBoxCodes.has(boxInput.value)) {
+      boxErr.textContent = "> CÓDIGO DE CAIXA JÁ REGISTRADO";
+      validateBtn.disabled = true;
+      return;
+    }
     isFinishing = true;
     validateBtn.disabled = true;
     boxInput.disabled = true;
@@ -612,6 +631,11 @@ function showSingleOrderBipping(page, state, unitId) {
     // limita a 10 dígitos
     if (val.length > 10) val = val.slice(0, 10);
     boxInput.value = val;
+    if (usedBoxCodes.has(val)) {
+      boxErr.textContent = "> CÓDIGO DE CAIXA JÁ REGISTRADO";
+      validateBtn.disabled = true;
+      return;
+    }
     boxErr.textContent =
       val && !/^\d{10}$/.test(val) ? "> DEVE TER 10 DIGITOS" : "";
     validateBtn.disabled = !/^\d{10}$/.test(val);

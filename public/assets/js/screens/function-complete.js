@@ -11,6 +11,7 @@ import {
   getGlobalConfig,
   getUnit,
   findExistingBatch,
+  getUsedBoxCodes,
 } from "../services/firestore.js";
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
@@ -587,7 +588,9 @@ async function saveOnlySeparation(page, state, unitId) {
 }
 
 // ─── Step 5: Bipagem ──────────────────────────────────────────────────────────
-function showStep5Bip(page, state, unitId) {
+async function showStep5Bip(page, state, unitId) {
+  page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
+  const usedBoxCodes = await getUsedBoxCodes(unitId);
   const bippingOrders = getBippingOrders(state);
   const isPdfBipping = state.importMeta?.sourceType === "pdf";
   const chrono = new Chronometer((sec) => {
@@ -689,6 +692,14 @@ function showStep5Bip(page, state, unitId) {
 
     const statusEl = page.querySelector(`#status-${code}`);
     if (/^\d{10}$/.test(val)) {
+      if (usedBoxCodes.has(val)) {
+        if (lockedMap[code]) { delete lockedMap[code]; inp.classList.remove("validated"); }
+        statusEl.textContent = "✗ JÁ REGISTRADA";
+        statusEl.className = "order-status";
+        statusEl.style.color = "var(--destructive)";
+        updateProgress();
+        return;
+      }
       const dup = Object.entries(lockedMap).find(([k, v]) => v === val && k !== code);
       if (dup) {
         if (lockedMap[code]) { delete lockedMap[code]; inp.classList.remove("validated"); }

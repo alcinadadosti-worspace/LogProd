@@ -8,6 +8,7 @@ import {
   getGlobalConfig,
   getUnit,
   findSeparationOrder,
+  getUsedBoxCodes,
 } from "../services/firestore.js";
 
 const VD_CITIES = {
@@ -400,7 +401,10 @@ function showAskBip(page, state, unitId) {
     );
 }
 
-function showBipStep(page, state, unitId) {
+async function showBipStep(page, state, unitId) {
+  page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
+  const usedBoxCodes = await getUsedBoxCodes(unitId);
+
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
@@ -442,6 +446,11 @@ function showBipStep(page, state, unitId) {
 
   async function finishBipping() {
     if (isFinishing || !/^\d{10}$/.test(boxInput.value)) return;
+    if (usedBoxCodes.has(boxInput.value)) {
+      boxErr.textContent = "> CÓDIGO DE CAIXA JÁ REGISTRADO";
+      validateBtn.disabled = true;
+      return;
+    }
     isFinishing = true;
     validateBtn.disabled = true;
     boxInput.disabled = true;
@@ -460,6 +469,11 @@ function showBipStep(page, state, unitId) {
     // limita a 10 dígitos
     if (val.length > 10) val = val.slice(0, 10);
     boxInput.value = val;
+    if (usedBoxCodes.has(val)) {
+      boxErr.textContent = "> CÓDIGO DE CAIXA JÁ REGISTRADO";
+      validateBtn.disabled = true;
+      return;
+    }
     boxErr.textContent =
       val && !/^\d{10}$/.test(val) ? "> DEVE TER 10 DÍGITOS" : "";
     validateBtn.disabled = !/^\d{10}$/.test(val);
