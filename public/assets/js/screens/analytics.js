@@ -1019,7 +1019,7 @@ export async function renderAnalytics(container, params) {
                   </div>
                   <div style="display:flex;justify-content:space-between;gap:0.5rem;font-size:0.55rem;color:var(--muted-fg);letter-spacing:0.1em;">
                     <span>${item.kind}${item.items ? " · " + item.items + " itens" : ""}</span>
-                    <span>${item.when ? String(item.when.getDate()).padStart(2, "0") + "/" + String(item.when.getMonth() + 1).padStart(2, "0") + " " + String(item.when.getHours()).padStart(2, "0") + "h" : ""}</span>
+                    <span>${item.when && item.when.getTime() > 0 ? String(item.when.getDate()).padStart(2, "0") + "/" + String(item.when.getMonth() + 1).padStart(2, "0") + " " + String(item.when.getHours()).padStart(2, "0") + "h" : "—"}</span>
                   </div>
                 </div>`;
                   })
