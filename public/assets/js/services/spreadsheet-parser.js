@@ -204,13 +204,13 @@ function parsePickingListLines(lines) {
   }
 
   if (header.pdfType === 'batch' && !header.batchCode) {
-    throw new Error('Numero do lote nao encontrado no PDF');
+    throw new Error('Este PDF não tem "Número do Lote". Verifique se exportou a Picking List correta.');
   }
   if (header.pdfType === 'single-order' && !header.orderCode) {
-    throw new Error('Numero do pedido nao encontrado no PDF');
+    throw new Error('Este PDF não tem "Número do Pedido". Verifique se exportou o pedido avulso correto.');
   }
   if (items.length === 0) {
-    throw new Error('Nenhum material encontrado no PDF');
+    throw new Error('Nenhum material encontrado no PDF. O arquivo pode estar corrompido ou em formato não suportado.');
   }
 
   const summedItems = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -277,8 +277,35 @@ async function parsePickingListPdf(file) {
  * Returns { orders: [...], skipped: number } and PDF metadata when available.
  */
 export async function parseSpreadsheet(file) {
+  if (!file) {
+    throw new Error('Nenhum arquivo selecionado.');
+  }
+
+  const name = String(file.name || '').toLowerCase();
+  const SUPPORTED = /\.(pdf|xlsx|xls|csv)$/i;
+  if (!SUPPORTED.test(name)) {
+    throw new Error(`Formato não suportado: "${file.name || 'arquivo'}". Aceitos: .pdf, .xlsx, .xls, .csv.`);
+  }
+
+  if (file.size === 0) {
+    throw new Error('Arquivo vazio (0 bytes).');
+  }
+
   if (isPdfFile(file)) {
-    return parsePickingListPdf(file);
+    try {
+      return await parsePickingListPdf(file);
+    } catch (err) {
+      // Re-emit known messages, wrap unknown ones with friendlier context
+      const msg = String(err?.message || err);
+      if (msg.includes('Picking List') || msg.includes('lote') || msg.includes('pedido') || msg.includes('material') || msg.includes('PDF')) {
+        throw err;
+      }
+      throw new Error(`Não foi possível ler o PDF. Confirme se é uma Picking List exportada pelo sistema. Detalhe: ${msg}`);
+    }
+  }
+
+  if (typeof XLSX === 'undefined') {
+    throw new Error('Biblioteca de planilhas não carregada. Recarregue a página.');
   }
 
   return new Promise((resolve, reject) => {
@@ -286,12 +313,23 @@ export async function parseSpreadsheet(file) {
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target.result);
-        const wb   = XLSX.read(data, { type: 'array', cellDates: false });
+        let wb;
+        try {
+          wb = XLSX.read(data, { type: 'array', cellDates: false });
+        } catch (xerr) {
+          return reject(new Error('Arquivo corrompido ou em formato inválido. Tente abrir e salvar novamente como .xlsx.'));
+        }
+        if (!wb.SheetNames || wb.SheetNames.length === 0) {
+          return reject(new Error('Planilha sem abas. Verifique o arquivo.'));
+        }
         const ws   = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
+        if (rows.length === 0) {
+          return reject(new Error('Planilha vazia. A primeira aba não tem nenhuma linha.'));
+        }
         if (rows.length < 2) {
-          return reject(new Error('Planilha vazia ou sem dados'));
+          return reject(new Error('Planilha sem dados. Só tem o cabeçalho — adicione pelo menos uma linha de pedido.'));
         }
 
         const headers = rows[0].map(String);
@@ -301,7 +339,10 @@ export async function parseSpreadsheet(file) {
         const colItems     = findColumn(headers, COLUMN_ALIASES.items);
 
         if (colOrder < 0) {
-          return reject(new Error('Coluna "Pedido" nao encontrada na planilha'));
+          const sample = headers.filter(Boolean).slice(0, 6).join(', ');
+          return reject(new Error(
+            `Coluna "Pedido" não encontrada. Esperado uma coluna chamada "Pedido", "Número do Pedido" ou similar. Encontrado no cabeçalho: ${sample || '(vazio)'}`
+          ));
         }
 
         const orders = [];
@@ -334,12 +375,18 @@ export async function parseSpreadsheet(file) {
           });
         }
 
+        if (orders.length === 0) {
+          return reject(new Error(
+            `Nenhum pedido válido encontrado. Esperado código de 9 dígitos na coluna "Pedido". ${skipped > 0 ? skipped + ' linhas ignoradas por código inválido.' : ''}`
+          ));
+        }
+
         resolve({ orders, skipped, sourceType: 'spreadsheet' });
       } catch (err) {
         reject(err);
       }
     };
-    reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
+    reader.onerror = () => reject(new Error('Erro ao ler arquivo. O navegador não conseguiu acessar o conteúdo.'));
     reader.readAsArrayBuffer(file);
   });
 }

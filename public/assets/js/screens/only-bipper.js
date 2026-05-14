@@ -603,7 +603,20 @@ async function showBippingChrono(
     state.bipStart = bipStart;
     state.bipEnd = new Date();
     state.boxCodes = { ...lockedMap };
-    await save(page, state, unitId);
+    try {
+      await save(page, state, unitId);
+    } catch (err) {
+      console.error("[only-bipper finishBipping] erro ao salvar:", err);
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">⚠ ERRO AO SALVAR</div>
+          <div class="text-muted mt-2" style="max-width:420px;margin:1rem auto;font-family:var(--font-terminal);font-size:0.75rem;">
+            ${String(err?.message || err).replace(/[<>&]/g, "")}<br><br>
+            Anote os dados do lote <strong>${state.batchCode || "—"}</strong> e avise o administrador.
+          </div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+    }
   }
 
   function updateProgress() {
@@ -754,7 +767,20 @@ async function showSingleOrderBipping(page, state, unitId, initialSeconds = 0, b
     state.bipStart = bipStart;
     state.bipEnd = new Date();
     state.boxCode = boxInput.value.trim();
-    await saveSingleOrderBipping(page, state, unitId);
+    try {
+      await saveSingleOrderBipping(page, state, unitId);
+    } catch (err) {
+      console.error("[only-bipper saveSingleOrderBipping] erro ao salvar:", err);
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">⚠ ERRO AO SALVAR</div>
+          <div class="text-muted mt-2" style="max-width:420px;margin:1rem auto;font-family:var(--font-terminal);font-size:0.75rem;">
+            ${String(err?.message || err).replace(/[<>&]/g, "")}<br><br>
+            Anote os dados do pedido <strong>${state.singleOrder?.code || "—"}</strong> e a caixa <strong>${state.boxCode || "—"}</strong>, e avise o administrador.
+          </div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+    }
   }
 
   boxInput.addEventListener("input", () => {

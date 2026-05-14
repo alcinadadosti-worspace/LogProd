@@ -559,7 +559,20 @@ async function showBipStep(page, state, unitId, initialSeconds = 0, bipStartedAt
     playConfirm();
     state.bipSeconds = chrono.getSeconds();
     state.boxCode = boxInput.value.trim();
-    await saveSingleOrder(page, state, unitId, true);
+    try {
+      await saveSingleOrder(page, state, unitId, true);
+    } catch (err) {
+      console.error("[single-order finishBipping] erro ao salvar:", err);
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">⚠ ERRO AO SALVAR</div>
+          <div class="text-muted mt-2" style="max-width:420px;margin:1rem auto;font-family:var(--font-terminal);font-size:0.75rem;">
+            ${String(err?.message || err).replace(/[<>&]/g, "")}<br><br>
+            Anote o pedido <strong>${state.order?.code || "—"}</strong> e a caixa <strong>${state.boxCode || "—"}</strong>, e avise o administrador.
+          </div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+    }
   }
 
   boxInput.addEventListener("input", () => {

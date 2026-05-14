@@ -1,6 +1,7 @@
-import { listPausesForUnit, formatPauseAge, onPauseChange } from "../services/pause.js";
+import { listPausesForUnit, formatPauseAge, onPauseChange, getPauseFor } from "../services/pause.js";
 import { getSessionContext } from "../auth.js";
 import { navigate } from "../router.js";
+import { createPauseEvent } from "../services/firestore.js";
 
 function esc(s) {
   return String(s ?? "")
@@ -65,6 +66,29 @@ export function renderPauseBanner() {
     btn.addEventListener("click", () => {
       const route = btn.getAttribute("data-resume-route") || "/dashboard";
       const sid = btn.getAttribute("data-resume-stockist") || "";
+
+      // Record the completed pause cycle to Firestore (fire-and-forget)
+      const pause = getPauseFor(sid);
+      if (pause && pause.pausedAt) {
+        const durationSeconds = Math.max(
+          0,
+          Math.round((Date.now() - pause.pausedAt) / 1000),
+        );
+        createPauseEvent({
+          stockistId: pause.stockistId,
+          stockistName: pause.stockistName || "",
+          unitId: pause.unitId,
+          label: pause.label || "",
+          kind: pause.kind || "",
+          phase: pause.phase || "",
+          pausedAt: new Date(pause.pausedAt),
+          resumedAt: new Date(),
+          durationSeconds,
+        }).catch(() => {
+          /* ignore — pause analytics is best-effort */
+        });
+      }
+
       const join = route.includes("?") ? "&" : "?";
       navigate(`${route}${join}resume=${encodeURIComponent(sid)}`);
     });

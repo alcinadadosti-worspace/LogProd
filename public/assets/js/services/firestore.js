@@ -115,6 +115,34 @@ export async function setUnit(unitId, data) {
   cacheDel("units:all");
 }
 
+// ===== PAUSE EVENTS =====
+
+/**
+ * Records one completed pause cycle (pausedAt → resumedAt).
+ * Fire-and-forget — the caller doesn't await this; navigation continues
+ * even if Firestore rejects.
+ */
+export async function createPauseEvent(data) {
+  const payload = { ...data, createdAt: serverTimestamp() };
+  return addDoc(collection(db, "pause_events"), payload);
+}
+
+/**
+ * Fetches recorded pause events. Admin view — no per-unit filter
+ * server-side to avoid requiring a composite index; caller filters
+ * client-side if needed.
+ */
+export async function getPauseEvents({ startDate, endDate, maxDocs = 500 } = {}) {
+  const constraints = [orderBy("createdAt", "desc")];
+  if (startDate)
+    constraints.push(where("createdAt", ">=", Timestamp.fromDate(startDate)));
+  if (endDate)
+    constraints.push(where("createdAt", "<=", Timestamp.fromDate(endDate)));
+  constraints.push(limit(maxDocs));
+  const snap = await getDocs(query(collection(db, "pause_events"), ...constraints));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 // ===== EVENTS =====
 
 export async function createEvent(eventData) {

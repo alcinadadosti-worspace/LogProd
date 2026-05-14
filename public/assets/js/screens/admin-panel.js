@@ -4,8 +4,10 @@ import {
   getGlobalConfig, setGlobalConfig,
   getTasks, setTask,
   getAllUnits, updateUnitStockists, setUnit,
-  getAllEvents, computeRanking, dateRangeForPeriod
+  getAllEvents, computeRanking, dateRangeForPeriod,
+  getPauseEvents,
 } from '../services/firestore.js';
+import { stockistPhoto } from '../services/photos.js';
 
 export async function renderAdminPanel(container) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -25,6 +27,7 @@ export async function renderAdminPanel(container) {
         <button class="tab-btn" data-tab="stockists">ESTOQUISTAS</button>
         <button class="tab-btn" data-tab="compare">COMPARATIVO</button>
         <button class="tab-btn" data-tab="events">EVENTOS</button>
+        <button class="tab-btn" data-tab="pauses">PAUSAS</button>
       </div>
       <div id="tab-content"></div>
     </div>
@@ -42,6 +45,7 @@ export async function renderAdminPanel(container) {
     stockists: () => renderStockists(tabContent),
     compare:   () => renderCompare(tabContent),
     events:    () => renderEvents(tabContent),
+    pauses:    () => renderPauses(tabContent),
   };
 
   tabs.forEach(btn => {
@@ -479,4 +483,207 @@ async function renderEvents(el) {
     a.href = url; a.download = 'eventos.csv'; a.click();
     URL.revokeObjectURL(url);
   });
+}
+
+// ─── Tab: Pausas ──────────────────────────────────────────────────────────────
+async function renderPauses(el) {
+  el.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
+
+  let period = 'month';
+
+  function fmtDuration(secs) {
+    if (!secs || secs < 0) return '—';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = Math.floor(secs % 60);
+    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+    if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
+    return `${s}s`;
+  }
+
+  function fmtDate(d) {
+    if (!d || !(d instanceof Date) || Number.isNaN(d.getTime()) || d.getTime() <= 0) return '—';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mn = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yy} ${hh}:${mn}`;
+  }
+
+  function toDateLocal(ts) {
+    if (!ts) return null;
+    if (typeof ts.toDate === 'function') return ts.toDate();
+    if (ts instanceof Date) return ts;
+    return new Date(ts);
+  }
+
+  async function load() {
+    el.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
+    const { startDate } = dateRangeForPeriod(period);
+    let pauses;
+    try {
+      pauses = await getPauseEvents({ startDate, maxDocs: 1000 });
+    } catch (err) {
+      el.innerHTML = `<div class="card cyber-chamfer text-center" style="padding:2rem;"><div class="text-destructive">Erro ao carregar: ${String(err.message || err)}</div></div>`;
+      return;
+    }
+    render(pauses);
+  }
+
+  function render(pauses) {
+    // Aggregate per stockist
+    const byStockist = {};
+    for (const p of pauses) {
+      const sid = p.stockistId;
+      if (!sid) continue;
+      if (!byStockist[sid]) {
+        byStockist[sid] = {
+          stockistId: sid,
+          name: p.stockistName || sid,
+          totalSeconds: 0,
+          count: 0,
+          longest: 0,
+          longestLabel: '',
+          pauses: [],
+        };
+      }
+      const rec = byStockist[sid];
+      const dur = p.durationSeconds || 0;
+      rec.totalSeconds += dur;
+      rec.count++;
+      if (dur > rec.longest) {
+        rec.longest = dur;
+        rec.longestLabel = p.label || '—';
+      }
+      rec.pauses.push({
+        when: toDateLocal(p.pausedAt) || toDateLocal(p.createdAt),
+        resumedAt: toDateLocal(p.resumedAt),
+        durationSeconds: dur,
+        label: p.label || '—',
+        kind: p.kind || '',
+        phase: p.phase || '',
+      });
+    }
+    const records = Object.values(byStockist).sort((a, b) => b.totalSeconds - a.totalSeconds);
+
+    el.innerHTML = `
+      <div class="card cyber-chamfer mb-2" style="padding:1rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+          <div class="section-title" style="margin:0;">⏸ TEMPO DE PAUSA ACUMULADO</div>
+          <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+            ${['today', 'week', 'month', 'all']
+              .map(
+                (p) => `
+              <button class="filter-btn period-btn ${p === period ? 'active' : ''}" data-period="${p}">
+                ${p === 'today' ? 'HOJE' : p === 'week' ? 'SEMANA' : p === 'month' ? 'MÊS' : 'SEMPRE'}
+              </button>`,
+              )
+              .join('')}
+          </div>
+        </div>
+        <div class="text-muted text-xs mt-2" style="font-family:var(--font-terminal);letter-spacing:0.08em;line-height:1.4;">
+          Pausas concluídas (pausadas e retomadas) no período. O tempo NÃO conta como trabalho — é tempo decorrido entre clicar PAUSAR e RETOMAR. ${pauses.length} ciclo(s) registrado(s).
+        </div>
+      </div>
+
+      ${records.length === 0
+        ? `<div class="card cyber-chamfer text-center" style="padding:2rem;color:var(--muted-fg);font-family:var(--font-terminal);font-size:0.8rem;">Sem pausas registradas no período.</div>`
+        : `
+        <div class="card cyber-chamfer" style="padding:0;">
+          <table style="width:100%;border-collapse:collapse;font-family:var(--font-terminal);font-size:0.72rem;">
+            <thead>
+              <tr style="border-bottom:2px solid var(--border);color:var(--muted-fg);font-size:0.6rem;letter-spacing:0.12em;">
+                <th style="padding:0.6rem;text-align:left;">ESTOQUISTA</th>
+                <th style="padding:0.6rem;text-align:right;">Nº PAUSAS</th>
+                <th style="padding:0.6rem;text-align:right;">TEMPO TOTAL</th>
+                <th style="padding:0.6rem;text-align:right;">MÉDIA</th>
+                <th style="padding:0.6rem;text-align:left;">MAIOR PAUSA</th>
+                <th style="padding:0.6rem;text-align:center;">DETALHES</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${records.map((r, idx) => {
+                const photo = stockistPhoto(r.name);
+                const avg = r.count > 0 ? Math.round(r.totalSeconds / r.count) : 0;
+                const isTop = idx === 0;
+                return `
+                <tr style="border-bottom:1px solid var(--border);${isTop ? 'background:rgba(217,119,6,0.06);' : ''}">
+                  <td style="padding:0.5rem 0.6rem;">
+                    <div style="display:flex;align-items:center;gap:0.4rem;">
+                      ${photo
+                        ? `<img src="${photo}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;border:1px solid var(--border);" onerror="this.style.display='none'">`
+                        : ''
+                      }
+                      <span style="${isTop ? 'color:#b45309;font-weight:700;' : ''}">${r.name}</span>
+                    </div>
+                  </td>
+                  <td style="padding:0.5rem 0.6rem;text-align:right;">${r.count}</td>
+                  <td style="padding:0.5rem 0.6rem;text-align:right;font-weight:700;color:${isTop ? '#b45309' : 'var(--fg)'};">${fmtDuration(r.totalSeconds)}</td>
+                  <td style="padding:0.5rem 0.6rem;text-align:right;color:var(--muted-fg);">${fmtDuration(avg)}</td>
+                  <td style="padding:0.5rem 0.6rem;font-size:0.65rem;">
+                    <span style="color:var(--fg);">${fmtDuration(r.longest)}</span>
+                    <span style="color:var(--muted-fg);">· ${r.longestLabel}</span>
+                  </td>
+                  <td style="padding:0.5rem 0.6rem;text-align:center;">
+                    <button class="btn btn--ghost btn--sm pause-detail-btn" data-id="${r.stockistId}" style="padding:0.25rem 0.6rem;font-size:0.6rem;">VER ▾</button>
+                  </td>
+                </tr>
+                <tr id="pause-detail-${r.stockistId}" style="display:none;">
+                  <td colspan="6" style="padding:0;background:var(--muted);">
+                    <div style="padding:0.5rem 1rem;">
+                      <table style="width:100%;font-size:0.65rem;font-family:var(--font-terminal);">
+                        <thead>
+                          <tr style="color:var(--muted-fg);font-size:0.55rem;letter-spacing:0.1em;">
+                            <th style="padding:0.3rem;text-align:left;">QUANDO PAUSOU</th>
+                            <th style="padding:0.3rem;text-align:left;">TRABALHO</th>
+                            <th style="padding:0.3rem;text-align:left;">FASE</th>
+                            <th style="padding:0.3rem;text-align:right;">DURAÇÃO</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${r.pauses
+                            .sort((a, b) => (b.when?.getTime() || 0) - (a.when?.getTime() || 0))
+                            .slice(0, 30)
+                            .map(p => `
+                              <tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.3rem;color:var(--muted-fg);">${fmtDate(p.when)}</td>
+                                <td style="padding:0.3rem;color:var(--accent);">${p.label}</td>
+                                <td style="padding:0.3rem;color:var(--muted-fg);">${p.phase === 'separation' ? 'separação' : p.phase === 'bipping' ? 'bipagem' : p.phase || '—'}</td>
+                                <td style="padding:0.3rem;text-align:right;color:var(--fg);">${fmtDuration(p.durationSeconds)}</td>
+                              </tr>
+                            `).join('')}
+                          ${r.pauses.length > 30 ? `<tr><td colspan="4" style="padding:0.4rem;text-align:center;color:var(--muted-fg);font-size:0.6rem;">+ ${r.pauses.length - 30} pausas mais antigas omitidas</td></tr>` : ''}
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        `}
+    `;
+
+    el.querySelectorAll('.period-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        period = btn.dataset.period;
+        load();
+      });
+    });
+
+    el.querySelectorAll('.pause-detail-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const row = el.querySelector(`#pause-detail-${btn.dataset.id}`);
+        if (!row) return;
+        const showing = row.style.display !== 'none';
+        row.style.display = showing ? 'none' : 'table-row';
+        btn.textContent = showing ? 'VER ▾' : 'OCULTAR ▴';
+      });
+    });
+  }
+
+  await load();
 }
