@@ -10,7 +10,7 @@ import {
   findSeparationOrder,
   getUsedBoxCodes,
 } from "../services/firestore.js";
-import { xpBatch } from "../services/xp-engine.js";
+import { xpBatch, xpBippingOnly } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
 import {
   playStart,
@@ -788,9 +788,10 @@ async function saveSingleOrderBipping(page, state, unitId) {
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
 
   const items = state.singleOrder.items || 1;
-  const xpResult = xpBatch({
+  const xpResult = xpBippingOnly({
     orders: 1,
     items,
+    boxes: 1,
     seconds: state.bipSeconds,
     config: state.config,
   });
@@ -842,7 +843,7 @@ async function saveSingleOrderBipping(page, state, unitId) {
           <div class="stat-row"><span class="stat-label">PEDIDO</span><span class="stat-value text-accent">${state.singleOrder.code}</span></div>
           <div class="stat-row"><span class="stat-label">CAIXA</span><span class="stat-value">${state.boxCode}</span></div>
           <div class="stat-row"><span class="stat-label">TEMPO BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>
-          <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} itens/min</span></div>
+          <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} ${xpResult.unit || "itens/min"}</span></div>
         </div>
         <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
       </div>`;
@@ -916,9 +917,11 @@ async function save(page, state, unitId) {
   const orderCount = state.bippingOrders?.length
     ? bippingOrders.length
     : state.orders.length;
-  const xpResult = xpBatch({
+  const totalBoxes = Object.keys(state.boxCodes || {}).length || orderCount;
+  const xpResult = xpBippingOnly({
     orders: orderCount,
     items: totalItems,
+    boxes: totalBoxes,
     seconds: state.bipSeconds,
     config: state.config,
   });
@@ -984,7 +987,7 @@ async function save(page, state, unitId) {
           ${state.importMeta?.sourceType === "pdf" ? `<div class="stat-row"><span class="stat-label">MATERIAIS</span><span class="stat-value">${state.orders.length}</span></div>` : ""}
           <div class="stat-row"><span class="stat-label">ITENS</span><span class="stat-value">${totalItems}</span></div>
           <div class="stat-row"><span class="stat-label">TEMPO BIPAGEM</span><span class="stat-value">${Chronometer.format(state.bipSeconds)}</span></div>
-          <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} itens/min</span></div>
+          <div class="stat-row"><span class="stat-label">VELOCIDADE</span><span class="stat-value">${xpResult.speed.toFixed(1)} ${xpResult.unit || "itens/min"}</span></div>
         </div>
         <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
       </div>`;

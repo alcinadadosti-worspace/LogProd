@@ -64,7 +64,8 @@ async function renderParams(el) {
     { key: 'xpBatchBase',            label: 'XP Base por lote',             type: 'number' },
     { key: 'xpPerOrder',             label: 'XP por pedido',                type: 'number' },
     { key: 'xpPerItem',              label: 'XP por item',                  type: 'number' },
-    { key: 'speedTargetItemsPerMin', label: 'Meta velocidade (itens/min)',   type: 'number' },
+    { key: 'speedTargetItemsPerMin', label: 'Meta velocidade — separação/completa (itens/min)', type: 'number', step: '0.1' },
+    { key: 'speedTargetBoxesPerMin', label: 'Meta velocidade — só bipagem (caixas/min)',       type: 'number', step: '0.1' },
     { key: 'bonusThreshold10',       label: 'Limiar bônus 10% (ex: 1.0)',   type: 'number', step: '0.1' },
     { key: 'bonusThreshold20',       label: 'Limiar bônus 20% (ex: 1.2)',   type: 'number', step: '0.1' },
   ];

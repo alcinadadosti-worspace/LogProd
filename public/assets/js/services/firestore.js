@@ -53,6 +53,7 @@ function getDefaultConfig() {
     xpPerOrder: 10,
     xpPerItem: 2,
     speedTargetItemsPerMin: 5,
+    speedTargetBoxesPerMin: 1.5,
     bonusThreshold10: 1.0,
     bonusThreshold20: 1.2,
   };
