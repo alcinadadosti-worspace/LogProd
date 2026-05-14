@@ -36,7 +36,12 @@ export async function getGlobalConfig() {
   const cached = cacheGet("config:global");
   if (cached) return cached;
   const snap = await getDoc(doc(db, "config", "global"));
-  const data = snap.exists() ? snap.data() : getDefaultConfig();
+  // Merge stored config over defaults so new fields added in later
+  // releases (e.g. speedTargetBoxesPerMin) show up even on instances
+  // whose Firestore doc was written before the field existed.
+  const data = snap.exists()
+    ? { ...getDefaultConfig(), ...snap.data() }
+    : getDefaultConfig();
   cacheSet("config:global", data, TTL.config);
   return data;
 }
