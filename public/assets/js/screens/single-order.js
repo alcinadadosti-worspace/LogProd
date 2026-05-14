@@ -43,7 +43,7 @@ import {
   playComplete,
   playAuraa,
 } from "../services/sound-engine.js";
-import { savePause, clearPause, getPauseFor } from "../services/pause.js";
+import { savePause, clearPause, getPause } from "../services/pause.js";
 import { confirmModal } from "../components/confirm-modal.js";
 
 export async function renderSingleOrder(container, params) {
@@ -79,6 +79,7 @@ export async function renderSingleOrder(container, params) {
     boxCode: "",
     config: null,
     unit: null,
+    pauseId: null,
     vd: null,
     city: null,
   };
@@ -86,14 +87,15 @@ export async function renderSingleOrder(container, params) {
   state.config = await getGlobalConfig();
   state.unit = await getUnit(unitId);
 
-  const resumeStockistId = params.resume || null;
-  const pauseRecord = resumeStockistId ? getPauseFor(resumeStockistId) : null;
+  const resumePauseId = params.resume || null;
+  const pauseRecord = resumePauseId ? getPause(resumePauseId) : null;
   if (
     pauseRecord &&
     pauseRecord.kind === "SINGLE_ORDER" &&
     pauseRecord.route === "/single-order" &&
     pauseRecord.unitId === unitId
   ) {
+    state.pauseId = pauseRecord.id;
     state.operator = {
       id: pauseRecord.stockistId,
       name: pauseRecord.stockistName,
@@ -403,7 +405,7 @@ function showSepChrono(page, state, unitId, initialSeconds = 0, sepStartedAt = n
   page.querySelector("#finish-sep").addEventListener("click", () => {
     chrono.stop();
     state.sepSeconds = chrono.getSeconds();
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
     showAskBip(page, state, unitId);
   });
 
@@ -416,7 +418,8 @@ function showSepChrono(page, state, unitId, initialSeconds = 0, sepStartedAt = n
     });
     if (!ok) return;
     chrono.stop();
-    savePause({
+    state.pauseId = savePause({
+      id: state.pauseId || undefined,
       stockistId: state.operator.id,
       stockistName: state.operator.name,
       unitId,
@@ -525,7 +528,8 @@ async function showBipStep(page, state, unitId, initialSeconds = 0, bipStartedAt
     });
     if (!ok) return;
     chrono.stop();
-    savePause({
+    state.pauseId = savePause({
+      id: state.pauseId || undefined,
       stockistId: state.operator.id,
       stockistName: state.operator.name,
       unitId,
@@ -657,11 +661,11 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
 
   try {
     await createEvent(eventData);
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
   } catch {
     try {
       saveEventLocally(eventData);
-      clearPause(state.operator.id);
+      if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `

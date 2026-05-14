@@ -18,7 +18,7 @@ import {
   playComplete,
   playAuraa,
 } from "../services/sound-engine.js";
-import { savePause, clearPause, getPauseFor } from "../services/pause.js";
+import { savePause, clearPause, getPause } from "../services/pause.js";
 import { confirmModal } from "../components/confirm-modal.js";
 
 export async function renderOnlyBipper(container, params) {
@@ -57,18 +57,20 @@ export async function renderOnlyBipper(container, params) {
     boxCodes: {},
     config: null,
     importMeta: null,
+    pauseId: null,
   };
 
   state.config = await getGlobalConfig();
 
-  const resumeStockistId = params.resume || null;
-  const pauseRecord = resumeStockistId ? getPauseFor(resumeStockistId) : null;
+  const resumePauseId = params.resume || null;
+  const pauseRecord = resumePauseId ? getPause(resumePauseId) : null;
   if (
     pauseRecord &&
     (pauseRecord.kind === "ONLY_BIPPING" ||
       (pauseRecord.kind === "SINGLE_ORDER" && pauseRecord.route === "/only-bipper")) &&
     pauseRecord.unitId === unitId
   ) {
+    state.pauseId = pauseRecord.id;
     state.operator = {
       id: pauseRecord.stockistId,
       name: pauseRecord.stockistName,
@@ -571,7 +573,8 @@ async function showBippingChrono(
     });
     if (!ok) return;
     chrono.stop();
-    savePause({
+    state.pauseId = savePause({
+      id: state.pauseId || undefined,
       stockistId: state.operator.id,
       stockistName: state.operator.name,
       unitId,
@@ -734,7 +737,8 @@ async function showSingleOrderBipping(page, state, unitId, initialSeconds = 0, b
     });
     if (!ok) return;
     chrono.stop();
-    savePause({
+    state.pauseId = savePause({
+      id: state.pauseId || undefined,
       stockistId: state.operator.id,
       stockistName: state.operator.name,
       unitId,
@@ -840,11 +844,11 @@ async function saveSingleOrderBipping(page, state, unitId) {
 
   try {
     await createEvent(eventData);
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
   } catch {
     try {
       saveEventLocally(eventData);
-      clearPause(state.operator.id);
+      if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `
@@ -980,11 +984,11 @@ async function save(page, state, unitId) {
 
   try {
     await createEvent(eventData);
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
   } catch {
     try {
       saveEventLocally(eventData);
-      clearPause(state.operator.id);
+      if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `

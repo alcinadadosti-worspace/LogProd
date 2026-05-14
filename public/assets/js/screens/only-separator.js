@@ -11,7 +11,7 @@ import {
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
 import { playStart, playComplete, playAuraa } from "../services/sound-engine.js";
-import { savePause, clearPause, getPauseFor } from "../services/pause.js";
+import { savePause, clearPause, getPause } from "../services/pause.js";
 import { confirmModal } from "../components/confirm-modal.js";
 
 const VD_CITIES = {
@@ -72,6 +72,7 @@ export async function renderOnlySeparator(container, params) {
     sepSeconds: 0,
     config: null,
     importMeta: null,
+    pauseId: null,
     vd: null,
     city: null,
     unit: null,
@@ -80,13 +81,14 @@ export async function renderOnlySeparator(container, params) {
   state.config = await getGlobalConfig();
   state.unit = await getUnit(unitId);
 
-  const resumeStockistId = params.resume || null;
-  const pauseRecord = resumeStockistId ? getPauseFor(resumeStockistId) : null;
+  const resumePauseId = params.resume || null;
+  const pauseRecord = resumePauseId ? getPause(resumePauseId) : null;
   if (
     pauseRecord &&
     pauseRecord.kind === "ONLY_SEPARATION" &&
     pauseRecord.unitId === unitId
   ) {
+    state.pauseId = pauseRecord.id;
     state.operator = {
       id: pauseRecord.stockistId,
       name: pauseRecord.stockistName,
@@ -337,7 +339,7 @@ function showChrono(page, state, unitId, initialSeconds = 0, sepStartedAt = null
   page.querySelector("#finish-btn").addEventListener("click", async () => {
     chrono.stop();
     state.sepSeconds = chrono.getSeconds();
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
     await save(page, state, unitId, startedAt, new Date());
   });
 
@@ -350,7 +352,8 @@ function showChrono(page, state, unitId, initialSeconds = 0, sepStartedAt = null
     });
     if (!ok) return;
     chrono.stop();
-    savePause({
+    state.pauseId = savePause({
+      id: state.pauseId || undefined,
       stockistId: state.operator.id,
       stockistName: state.operator.name,
       unitId,
@@ -455,11 +458,11 @@ async function save(page, state, unitId, startedAt, finishedAt) {
 
   try {
     await createEvent(eventData);
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
   } catch {
     try {
       saveEventLocally(eventData);
-      clearPause(state.operator.id);
+      if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `

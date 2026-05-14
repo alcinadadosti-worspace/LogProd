@@ -21,7 +21,7 @@ import {
   playComplete,
   playAuraa,
 } from "../services/sound-engine.js";
-import { savePause, clearPause, getPauseFor } from "../services/pause.js";
+import { savePause, clearPause, getPause } from "../services/pause.js";
 import { confirmModal } from "../components/confirm-modal.js";
 
 const VD_CITIES = {
@@ -89,6 +89,7 @@ export async function renderFunctionComplete(container, params) {
     boxCodes: {},
     config: null,
     currentChrono: null,
+    pauseId: null,
     vd: null,
     city: null,
     unit: null,
@@ -98,9 +99,10 @@ export async function renderFunctionComplete(container, params) {
   state.unit = await getUnit(unitId);
 
   // Check if resuming a paused batch
-  const resumeStockistId = params.resume || null;
-  const pauseRecord = resumeStockistId ? getPauseFor(resumeStockistId) : null;
+  const resumePauseId = params.resume || null;
+  const pauseRecord = resumePauseId ? getPause(resumePauseId) : null;
   if (pauseRecord && pauseRecord.kind === "BATCH" && pauseRecord.unitId === unitId) {
+    state.pauseId = pauseRecord.id;
     state.operator = {
       id: pauseRecord.stockistId,
       name: pauseRecord.stockistName,
@@ -429,7 +431,7 @@ function showStep3Sep(page, state, unitId, initialSeconds = 0, sepStartedAt = nu
     state.sepSeconds = chrono.getSeconds();
     state.separationStart = startedAt;
     state.separationEnd = new Date();
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
     showStep4AskBip(page, state, unitId);
   });
 
@@ -442,7 +444,8 @@ function showStep3Sep(page, state, unitId, initialSeconds = 0, sepStartedAt = nu
     });
     if (!ok) return;
     chrono.stop();
-    savePause({
+    state.pauseId = savePause({
+      id: state.pauseId || undefined,
       stockistId: state.operator.id,
       stockistName: state.operator.name,
       unitId,
@@ -655,11 +658,11 @@ async function saveOnlySeparation(page, state, unitId) {
 
   try {
     await createEvent(eventData);
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
   } catch {
     try {
       saveEventLocally(eventData);
-      clearPause(state.operator.id);
+      if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `
@@ -781,7 +784,8 @@ async function showStep5Bip(page, state, unitId, initialSeconds = 0, initialLock
     });
     if (!ok) return;
     chrono.stop();
-    savePause({
+    state.pauseId = savePause({
+      id: state.pauseId || undefined,
       stockistId: state.operator.id,
       stockistName: state.operator.name,
       unitId,
@@ -946,11 +950,11 @@ async function saveBatch(page, state, unitId) {
 
   try {
     await createEvent(eventData);
-    clearPause(state.operator.id);
+    if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
   } catch {
     try {
       saveEventLocally(eventData);
-      clearPause(state.operator.id);
+      if (state.pauseId) { clearPause(state.pauseId); state.pauseId = null; }
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `

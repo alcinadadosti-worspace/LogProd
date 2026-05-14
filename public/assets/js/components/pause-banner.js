@@ -1,4 +1,4 @@
-import { listPausesForUnit, formatPauseAge, onPauseChange, getPauseFor } from "../services/pause.js";
+import { listPausesForUnit, formatPauseAge, onPauseChange, getPause } from "../services/pause.js";
 import { getSessionContext } from "../auth.js";
 import { navigate } from "../router.js";
 import { createPauseEvent } from "../services/firestore.js";
@@ -54,7 +54,7 @@ export function renderPauseBanner() {
         <span class="pause-banner-item">
           ⏸ <strong>${esc(p.label || "TRABALHO")}</strong>
           <span style="opacity:0.75;">${esc(p.stockistName || "")}${age ? " · " + age : ""} · ${elapsed}</span>
-          <button class="pause-banner-btn" data-resume-route="${esc(p.route || "/dashboard")}" data-resume-stockist="${esc(p.stockistId)}">
+          <button class="pause-banner-btn" data-resume-route="${esc(p.route || "/dashboard")}" data-resume-id="${esc(p.id)}">
             RETOMAR
           </button>
         </span>`;
@@ -65,10 +65,10 @@ export function renderPauseBanner() {
   el.querySelectorAll(".pause-banner-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const route = btn.getAttribute("data-resume-route") || "/dashboard";
-      const sid = btn.getAttribute("data-resume-stockist") || "";
+      const pauseId = btn.getAttribute("data-resume-id") || "";
 
       // Record the completed pause cycle to Firestore (fire-and-forget)
-      const pause = getPauseFor(sid);
+      const pause = getPause(pauseId);
       if (pause && pause.pausedAt) {
         const durationSeconds = Math.max(
           0,
@@ -90,7 +90,7 @@ export function renderPauseBanner() {
       }
 
       const join = route.includes("?") ? "&" : "?";
-      navigate(`${route}${join}resume=${encodeURIComponent(sid)}`);
+      navigate(`${route}${join}resume=${encodeURIComponent(pauseId)}`);
     });
   });
 }
