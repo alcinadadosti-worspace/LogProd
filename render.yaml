@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: prod-ops
+    runtime: static
+    staticPublishPath: ./public
+    pullRequestPreviewsEnabled: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+      - path: /assets/js/*
+        name: Cache-Control
+        value: no-cache
+      - path: /assets/css/*
+        name: Cache-Control
+        value: no-cache
+      - path: /audio/*
+        name: Cache-Control
+        value: public, max-age=86400
+      - path: /perfis/*
+        name: Cache-Control
+        value: public, max-age=86400
