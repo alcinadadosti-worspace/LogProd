@@ -11,6 +11,7 @@ import { renderTask }           from './screens/task.js';
 import { renderAdminPanel }     from './screens/admin-panel.js';
 import { renderRankingDisplay } from './screens/ranking-display.js';
 import { renderAnalytics }      from './screens/analytics.js';
+import { renderRecords }        from './screens/records.js';
 
 import { onAuthChange, waitForAuth, getSessionContext } from './auth.js';
 import { initRouter, registerRoute, navigate } from './router.js';
@@ -29,6 +30,7 @@ const screens = {
   admin:               renderAdminPanel,
   tela:                renderRankingDisplay,
   analytics:           renderAnalytics,
+  records:             renderRecords,
 };
 
 function showLoading(on) {
