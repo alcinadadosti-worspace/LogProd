@@ -5,13 +5,14 @@ import {
   getAllEvents,
   getAllUnits,
   getUnit,
+  getTasks,
   dateRangeForPeriod,
 } from "../services/firestore.js";
 import { stockistPhoto } from "../services/photos.js";
 
 const _cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
-const INITIAL_LIMIT = 50;
+const PAGE_SIZE = 10;
 
 const TYPE_LABELS = {
   BATCH: "Função Completa",
@@ -33,6 +34,14 @@ function fmtDate(d) {
   const hh = String(d.getHours()).padStart(2, "0");
   const mn = String(d.getMinutes()).padStart(2, "0");
   return `${dd}/${mm}/${yy} ${hh}:${mn}`;
+}
+
+function fmtDay(d) {
+  if (!d || Number.isNaN(d.getTime?.()) || d.getTime() <= 0) return "—";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}/${mm}/${yy}`;
 }
 
 function esc(s) {
@@ -127,20 +136,24 @@ export async function renderRecords(container, params) {
       const { startDate } = dateRangeForPeriod(period);
       let events = [],
         units = [],
-        stockistNames = {};
+        stockistNames = {},
+        tasks = [];
 
       if (isAdmin) {
-        [events, units] = await Promise.all([
+        [events, units, tasks] = await Promise.all([
           getAllEvents({ startDate, maxDocs: 1000 }),
           getAllUnits(),
+          getTasks().catch(() => []),
         ]);
       } else {
-        const [unit, evs] = await Promise.all([
+        const [unit, evs, tks] = await Promise.all([
           getUnit(ctx.unitId),
           getEvents({ unitId: ctx.unitId, startDate, maxDocs: 500 }),
+          getTasks().catch(() => []),
         ]);
         events = evs;
         units = unit ? [unit] : [];
+        tasks = tks;
       }
 
       units.forEach((u) =>
@@ -149,7 +162,12 @@ export async function renderRecords(container, params) {
         }),
       );
 
-      const data = { events, stockistNames, ts: Date.now() };
+      const taskNames = {};
+      tasks.forEach((t) => {
+        taskNames[t.id] = t.name || t.label || t.id;
+      });
+
+      const data = { events, stockistNames, taskNames, ts: Date.now() };
       _cache.set(cacheKey, data);
       render(data);
     } catch (err) {
@@ -159,7 +177,7 @@ export async function renderRecords(container, params) {
     }
   }
 
-  function render({ events, stockistNames }) {
+  function render({ events, stockistNames, taskNames = {} }) {
     const batchRows = events
       .filter((ev) =>
         ["BATCH", "ONLY_SEPARATION", "ONLY_BIPPING"].includes(ev.type),
@@ -215,66 +233,68 @@ export async function renderRecords(container, params) {
     });
     boxRows.sort((a, b) => b.when - a.when);
 
+    const taskMap = new Map();
+    events.forEach((ev) => {
+      if (ev.type !== "TASK") return;
+      const when = toDate(ev.createdAt);
+      const dayKey = `${when.getFullYear()}-${when.getMonth()}-${when.getDate()}`;
+      const taskId = ev.task?.taskId || "—";
+      const stockistId = ev.stockistId || "—";
+      const key = `${dayKey}|${taskId}|${stockistId}`;
+      let row = taskMap.get(key);
+      if (!row) {
+        row = {
+          when,
+          taskId,
+          taskName: taskNames[taskId] || taskId,
+          quantity: 0,
+          xp: 0,
+          name: stockistNames[stockistId] || stockistId || "—",
+        };
+        taskMap.set(key, row);
+      }
+      row.quantity += ev.task?.quantity || 1;
+      row.xp += ev.xp || 0;
+    });
+    const taskRows = [...taskMap.values()].sort(
+      (a, b) => b.when - a.when || b.xp - a.xp,
+    );
+
     page.innerHTML = `
       <div class="card cyber-chamfer mb-2" style="padding:1rem;">
         <div class="section-title mb-2">🔎 BUSCA</div>
         <input id="rec-search" type="text" class="input"
-               placeholder="Digite código de lote, pedido ou caixa..."
+               placeholder="Digite código de lote, pedido, caixa, tarefa ou nome..."
                style="width:100%;font-family:var(--font-terminal);"
                autocomplete="off" inputmode="search">
         <div class="text-muted text-xs mt-1" style="font-family:var(--font-terminal);">
-          Sem busca: últimos ${INITIAL_LIMIT} de cada categoria. Com busca: filtra todo o período carregado.
+          ${PAGE_SIZE} por página. Use ‹ › para navegar. Busca filtra todo o período carregado.
         </div>
       </div>
 
-      <div class="card cyber-chamfer mb-2">
-        <div class="section-title mb-2">📦 LOTES <span id="rec-lote-count" style="color:var(--muted-fg);font-size:0.7rem;"></span></div>
-        <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:0.72rem;font-family:var(--font-terminal);">
-            <thead><tr style="border-bottom:2px solid var(--border);color:var(--muted-fg);font-size:0.6rem;letter-spacing:0.12em;">
-              <th style="padding:0.5rem 0.4rem;text-align:left;">DATA</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">LOTE</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">TIPO</th>
-              <th style="padding:0.5rem 0.4rem;text-align:right;">PEDIDOS</th>
-              <th style="padding:0.5rem 0.4rem;text-align:right;">ITENS</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">ESTOQUISTA</th>
-            </tr></thead>
-            <tbody id="rec-lote-body"></tbody>
-          </table>
-        </div>
-      </div>
+      ${tableCard("lote", "📦 LOTES", [
+        "DATA", "LOTE", "TIPO", "PEDIDOS", "ITENS", "ESTOQUISTA",
+      ], [
+        "left", "left", "left", "right", "right", "left",
+      ])}
 
-      <div class="card cyber-chamfer mb-2">
-        <div class="section-title mb-2">📋 PEDIDOS AVULSOS <span id="rec-order-count" style="color:var(--muted-fg);font-size:0.7rem;"></span></div>
-        <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:0.72rem;font-family:var(--font-terminal);">
-            <thead><tr style="border-bottom:2px solid var(--border);color:var(--muted-fg);font-size:0.6rem;letter-spacing:0.12em;">
-              <th style="padding:0.5rem 0.4rem;text-align:left;">DATA</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">PEDIDO</th>
-              <th style="padding:0.5rem 0.4rem;text-align:right;">ITENS</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">CAIXA</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">ESTOQUISTA</th>
-            </tr></thead>
-            <tbody id="rec-order-body"></tbody>
-          </table>
-        </div>
-      </div>
+      ${tableCard("order", "📋 PEDIDOS AVULSOS", [
+        "DATA", "PEDIDO", "ITENS", "CAIXA", "ESTOQUISTA",
+      ], [
+        "left", "left", "right", "left", "left",
+      ])}
 
-      <div class="card cyber-chamfer mb-3">
-        <div class="section-title mb-2">📦 CAIXAS <span id="rec-box-count" style="color:var(--muted-fg);font-size:0.7rem;"></span></div>
-        <div style="overflow-x:auto;">
-          <table style="width:100%;border-collapse:collapse;font-size:0.72rem;font-family:var(--font-terminal);">
-            <thead><tr style="border-bottom:2px solid var(--border);color:var(--muted-fg);font-size:0.6rem;letter-spacing:0.12em;">
-              <th style="padding:0.5rem 0.4rem;text-align:left;">DATA</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">CAIXA</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">ORIGEM</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">PEDIDO</th>
-              <th style="padding:0.5rem 0.4rem;text-align:left;">ESTOQUISTA</th>
-            </tr></thead>
-            <tbody id="rec-box-body"></tbody>
-          </table>
-        </div>
-      </div>
+      ${tableCard("box", "📦 CAIXAS", [
+        "DATA", "CAIXA", "ORIGEM", "PEDIDO", "ESTOQUISTA",
+      ], [
+        "left", "left", "left", "left", "left",
+      ])}
+
+      ${tableCard("task", "🎯 TAREFAS", [
+        "DATA", "TAREFA", "QTD", "XP", "ESTOQUISTA",
+      ], [
+        "left", "left", "right", "right", "left",
+      ])}
     `;
 
     const renderRow = (cells) =>
@@ -288,89 +308,121 @@ export async function renderRecords(container, params) {
       </div></td>`;
     };
 
-    function renderTables(filter = "") {
-      const f = filter.trim().toLowerCase();
-      const filterFn = (rows, getHaystack) =>
-        f
-          ? rows.filter((r) => String(getHaystack(r)).toLowerCase().includes(f))
-          : rows;
+    const renderers = {
+      lote: (r) =>
+        `<td style="padding:0.4rem;color:var(--muted-fg);font-size:0.65rem;">${fmtDate(r.when)}</td>
+         <td style="padding:0.4rem;color:var(--accent);font-weight:700;">${esc(r.code)}</td>
+         <td style="padding:0.4rem;font-size:0.65rem;">${esc(r.type)}</td>
+         <td style="padding:0.4rem;text-align:right;">${r.orders}</td>
+         <td style="padding:0.4rem;text-align:right;">${r.items}</td>
+         ${operatorCell(r.name)}`,
+      order: (r) =>
+        `<td style="padding:0.4rem;color:var(--muted-fg);font-size:0.65rem;">${fmtDate(r.when)}</td>
+         <td style="padding:0.4rem;color:var(--accent);font-weight:700;">${esc(r.code)}</td>
+         <td style="padding:0.4rem;text-align:right;">${r.items}</td>
+         <td style="padding:0.4rem;color:var(--accent-3,#0284c7);">${esc(r.boxCode)}</td>
+         ${operatorCell(r.name)}`,
+      box: (r) =>
+        `<td style="padding:0.4rem;color:var(--muted-fg);font-size:0.65rem;">${fmtDate(r.when)}</td>
+         <td style="padding:0.4rem;color:var(--accent);font-weight:700;">${esc(r.code)}</td>
+         <td style="padding:0.4rem;font-size:0.65rem;">${esc(r.origin)}</td>
+         <td style="padding:0.4rem;font-size:0.65rem;color:var(--muted-fg);">${esc(r.orderCode || "—")}</td>
+         ${operatorCell(r.name)}`,
+      task: (r) =>
+        `<td style="padding:0.4rem;color:var(--muted-fg);font-size:0.65rem;">${fmtDay(r.when)}</td>
+         <td style="padding:0.4rem;color:var(--accent);font-weight:700;">${esc(r.taskName)}</td>
+         <td style="padding:0.4rem;text-align:right;">${r.quantity}</td>
+         <td style="padding:0.4rem;text-align:right;color:var(--accent-3,#0284c7);">${r.xp}</td>
+         ${operatorCell(r.name)}`,
+    };
 
-      const fLotes = filterFn(batchRows, (r) => r.code + " " + r.name);
-      const fOrders = filterFn(
-        orderRows,
-        (r) => r.code + " " + r.boxCode + " " + r.name,
-      );
-      const fBoxes = filterFn(
-        boxRows,
-        (r) => r.code + " " + r.origin + " " + r.orderCode + " " + r.name,
-      );
+    const haystacks = {
+      lote: (r) => r.code + " " + r.type + " " + r.name,
+      order: (r) => r.code + " " + r.boxCode + " " + r.name,
+      box: (r) => r.code + " " + r.origin + " " + r.orderCode + " " + r.name,
+      task: (r) => r.taskName + " " + r.taskId + " " + r.name,
+    };
 
-      const limit = f ? Infinity : INITIAL_LIMIT;
+    const labels = {
+      lote: { singular: "lote", plural: "lotes", cols: 6 },
+      order: { singular: "pedido avulso", plural: "pedidos avulsos", cols: 5 },
+      box: { singular: "caixa", plural: "caixas", cols: 5 },
+      task: { singular: "tarefa", plural: "tarefas", cols: 5 },
+    };
 
-      const loteHtml = fLotes
-        .slice(0, limit)
-        .map((r) =>
-          renderRow(
-            `<td style="padding:0.4rem;color:var(--muted-fg);font-size:0.65rem;">${fmtDate(r.when)}</td>
-             <td style="padding:0.4rem;color:var(--accent);font-weight:700;">${esc(r.code)}</td>
-             <td style="padding:0.4rem;font-size:0.65rem;">${esc(r.type)}</td>
-             <td style="padding:0.4rem;text-align:right;">${r.orders}</td>
-             <td style="padding:0.4rem;text-align:right;">${r.items}</td>
-             ${operatorCell(r.name)}`,
-          ),
-        )
-        .join("");
+    const datasets = {
+      lote: batchRows,
+      order: orderRows,
+      box: boxRows,
+      task: taskRows,
+    };
 
-      const orderHtml = fOrders
-        .slice(0, limit)
-        .map((r) =>
-          renderRow(
-            `<td style="padding:0.4rem;color:var(--muted-fg);font-size:0.65rem;">${fmtDate(r.when)}</td>
-             <td style="padding:0.4rem;color:var(--accent);font-weight:700;">${esc(r.code)}</td>
-             <td style="padding:0.4rem;text-align:right;">${r.items}</td>
-             <td style="padding:0.4rem;color:var(--accent-3,#0284c7);">${esc(r.boxCode)}</td>
-             ${operatorCell(r.name)}`,
-          ),
-        )
-        .join("");
+    const pages = { lote: 1, order: 1, box: 1, task: 1 };
+    let currentFilter = "";
 
-      const boxHtml = fBoxes
-        .slice(0, limit)
-        .map((r) =>
-          renderRow(
-            `<td style="padding:0.4rem;color:var(--muted-fg);font-size:0.65rem;">${fmtDate(r.when)}</td>
-             <td style="padding:0.4rem;color:var(--accent);font-weight:700;">${esc(r.code)}</td>
-             <td style="padding:0.4rem;font-size:0.65rem;">${esc(r.origin)}</td>
-             <td style="padding:0.4rem;font-size:0.65rem;color:var(--muted-fg);">${esc(r.orderCode || "—")}</td>
-             ${operatorCell(r.name)}`,
-          ),
-        )
-        .join("");
+    function renderTable(key) {
+      const all = datasets[key];
+      const f = currentFilter;
+      const filtered = f
+        ? all.filter((r) => haystacks[key](r).toLowerCase().includes(f))
+        : all;
 
-      const empty = (cols, msg) =>
-        `<tr><td colspan="${cols}" style="padding:1rem;text-align:center;color:var(--muted-fg);font-size:0.7rem;">${msg}</td></tr>`;
+      const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+      if (pages[key] > totalPages) pages[key] = totalPages;
+      if (pages[key] < 1) pages[key] = 1;
 
-      page.querySelector("#rec-lote-body").innerHTML =
-        loteHtml ||
-        empty(6, f ? "Nenhum lote encontrado para a busca." : "Nenhum lote no período.");
-      page.querySelector("#rec-order-body").innerHTML =
-        orderHtml ||
-        empty(
-          5,
-          f ? "Nenhum pedido avulso encontrado para a busca." : "Nenhum pedido avulso no período.",
-        );
-      page.querySelector("#rec-box-body").innerHTML =
-        boxHtml ||
-        empty(5, f ? "Nenhuma caixa encontrada para a busca." : "Nenhuma caixa no período.");
+      const start = (pages[key] - 1) * PAGE_SIZE;
+      const slice = filtered.slice(start, start + PAGE_SIZE);
 
-      const cnt = (filtered, total) =>
-        `(${Math.min(filtered.length, limit)}/${total.length}${f && filtered.length < total.length ? ` · de ${total.length}` : ""})`;
-      page.querySelector("#rec-lote-count").textContent = cnt(fLotes, batchRows);
-      page.querySelector("#rec-order-count").textContent = cnt(fOrders, orderRows);
-      page.querySelector("#rec-box-count").textContent = cnt(fBoxes, boxRows);
+      const body = page.querySelector(`#rec-${key}-body`);
+      if (slice.length) {
+        body.innerHTML = slice.map((r) => renderRow(renderers[key](r))).join("");
+      } else {
+        body.innerHTML = `<tr><td colspan="${labels[key].cols}" style="padding:1rem;text-align:center;color:var(--muted-fg);font-size:0.7rem;">${
+          f
+            ? `Nenhum(a) ${labels[key].singular} encontrado(a) para a busca.`
+            : `Sem ${labels[key].plural} no período.`
+        }</td></tr>`;
+      }
+
+      const totalLabel = filtered.length;
+      page.querySelector(`#rec-${key}-count`).textContent = totalLabel
+        ? `(${start + 1}–${Math.min(start + PAGE_SIZE, totalLabel)} de ${totalLabel})`
+        : "(0)";
+
+      const prevBtn = page.querySelector(`#rec-${key}-prev`);
+      const nextBtn = page.querySelector(`#rec-${key}-next`);
+      const pageInfo = page.querySelector(`#rec-${key}-page`);
+      if (prevBtn) prevBtn.disabled = pages[key] <= 1;
+      if (nextBtn) nextBtn.disabled = pages[key] >= totalPages;
+      if (pageInfo) pageInfo.textContent = `${pages[key]} / ${totalPages}`;
     }
 
-    renderTables("");
+    function renderAll(filter = currentFilter) {
+      currentFilter = filter.trim().toLowerCase();
+      pages.lote = pages.order = pages.box = pages.task = 1;
+      renderTable("lote");
+      renderTable("order");
+      renderTable("box");
+      renderTable("task");
+    }
+
+    ["lote", "order", "box", "task"].forEach((key) => {
+      page
+        .querySelector(`#rec-${key}-prev`)
+        .addEventListener("click", () => {
+          pages[key]--;
+          renderTable(key);
+        });
+      page
+        .querySelector(`#rec-${key}-next`)
+        .addEventListener("click", () => {
+          pages[key]++;
+          renderTable(key);
+        });
+    });
+
+    renderAll("");
 
     const searchInput = page.querySelector("#rec-search");
     searchInput.addEventListener("input", (e) => {
@@ -378,7 +430,7 @@ export async function renderRecords(container, params) {
       const v = e.target.value;
       searchDebounce = setTimeout(() => {
         searchDebounce = null;
-        if (page.querySelector("#rec-lote-body")) renderTables(v);
+        if (page.querySelector("#rec-lote-body")) renderAll(v);
       }, 120);
     });
   }
@@ -391,4 +443,33 @@ export async function renderRecords(container, params) {
       searchDebounce = null;
     }
   };
+}
+
+function tableCard(key, title, cols, aligns) {
+  const ths = cols
+    .map(
+      (c, i) =>
+        `<th style="padding:0.5rem 0.4rem;text-align:${aligns[i]};">${c}</th>`,
+    )
+    .join("");
+  return `
+    <div class="card cyber-chamfer mb-2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+        <div class="section-title" style="margin:0;">${title} <span id="rec-${key}-count" style="color:var(--muted-fg);font-size:0.7rem;font-weight:400;letter-spacing:0.1em;"></span></div>
+        <div style="display:flex;align-items:center;gap:0.3rem;">
+          <button id="rec-${key}-prev" class="btn btn--ghost btn--sm" style="padding:0.25rem 0.6rem;">‹</button>
+          <span id="rec-${key}-page" style="font-family:var(--font-terminal);font-size:0.65rem;color:var(--muted-fg);min-width:3.5rem;text-align:center;">1 / 1</span>
+          <button id="rec-${key}-next" class="btn btn--ghost btn--sm" style="padding:0.25rem 0.6rem;">›</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.72rem;font-family:var(--font-terminal);">
+          <thead><tr style="border-bottom:2px solid var(--border);color:var(--muted-fg);font-size:0.6rem;letter-spacing:0.12em;">
+            ${ths}
+          </tr></thead>
+          <tbody id="rec-${key}-body"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
