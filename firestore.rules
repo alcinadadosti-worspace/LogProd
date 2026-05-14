@@ -25,5 +25,16 @@ service cloud.firestore {
                     && request.resource.data.xp          >= 0;
       allow update, delete: if false;
     }
+
+    // Pause events: registra cada ciclo pausar→retomar. Imutável.
+    match /pause_events/{pauseId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.stockistId      is string
+                    && request.resource.data.unitId          is string
+                    && request.resource.data.durationSeconds is number
+                    && request.resource.data.durationSeconds >= 0;
+      allow update, delete: if false;
+    }
   }
 }
