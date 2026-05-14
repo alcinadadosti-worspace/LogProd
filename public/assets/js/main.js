@@ -16,6 +16,7 @@ import { renderRecords }        from './screens/records.js';
 import { onAuthChange, waitForAuth, getSessionContext } from './auth.js';
 import { initRouter, registerRoute, navigate } from './router.js';
 import { flushPendingEvents, getPendingEvents } from './services/firestore.js';
+import { initPauseBanner } from './components/pause-banner.js';
 
 // Mapa de rotas
 const screens = {
@@ -123,6 +124,7 @@ async function boot() {
   }
 
   routerStarted = true;
+  initPauseBanner();
   initRouter();
 }
 

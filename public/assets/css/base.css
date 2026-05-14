@@ -172,6 +172,37 @@ a:hover { text-shadow: var(--neon-sm); }
 }
 #sync-banner.visible { display: block; }
 
+/* Paused work banner */
+#pause-banner {
+  display: none;
+  background: #fffbeb;
+  border-bottom: 1px solid #d97706;
+  padding: 0.5rem 1rem;
+  font-size: 0.7rem;
+  font-family: var(--font-terminal);
+  color: #b45309;
+  letter-spacing: 0.12em;
+}
+#pause-banner.visible { display: flex; align-items: center; justify-content: center; gap: 0.6rem; flex-wrap: wrap; }
+#pause-banner .pause-banner-item {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid #d97706;
+  background: #fff;
+}
+#pause-banner .pause-banner-btn {
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  color: #fff;
+  background: #d97706;
+  border: 0;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+#pause-banner .pause-banner-btn:hover { background: #b45309; }
+#pause-banner .pause-banner-btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
 /* Utilities */
 .text-accent     { color: var(--accent); }
 .text-accent-2   { color: var(--accent-2); }

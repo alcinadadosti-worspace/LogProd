@@ -43,6 +43,8 @@ import {
   playComplete,
   playAuraa,
 } from "../services/sound-engine.js";
+import { savePause, clearPause, getPauseFor } from "../services/pause.js";
+import { confirmModal } from "../components/confirm-modal.js";
 
 export async function renderSingleOrder(container, params) {
   if (!getCurrentUser()) {
@@ -83,6 +85,36 @@ export async function renderSingleOrder(container, params) {
 
   state.config = await getGlobalConfig();
   state.unit = await getUnit(unitId);
+
+  const resumeStockistId = params.resume || null;
+  const pauseRecord = resumeStockistId ? getPauseFor(resumeStockistId) : null;
+  if (
+    pauseRecord &&
+    pauseRecord.kind === "SINGLE_ORDER" &&
+    pauseRecord.route === "/single-order" &&
+    pauseRecord.unitId === unitId
+  ) {
+    state.operator = {
+      id: pauseRecord.stockistId,
+      name: pauseRecord.stockistName,
+    };
+    const s = pauseRecord.state || {};
+    state.order = s.order || null;
+    state.vd = s.vd || null;
+    state.city = s.city || null;
+    state.sepSeconds = s.sepSeconds || 0;
+    const sepStartedAt = s.sepStart ? new Date(s.sepStart) : null;
+    const bipStartedAt = s.bipStart ? new Date(s.bipStart) : null;
+    if (pauseRecord.phase === "separation") {
+      showSepChrono(page, state, unitId, pauseRecord.elapsedSeconds || 0, sepStartedAt);
+    } else if (pauseRecord.phase === "bipping") {
+      showBipStep(page, state, unitId, pauseRecord.elapsedSeconds || 0, bipStartedAt);
+    } else {
+      showInput(page, state, unitId);
+    }
+    return;
+  }
+
   state.operator = await selectOperator(unitId);
   if (!state.operator) {
     navigate("/dashboard");
@@ -338,22 +370,26 @@ function showCitySelection(page, state, unitId, onConfirm) {
   }
 }
 
-function showSepChrono(page, state, unitId) {
+function showSepChrono(page, state, unitId, initialSeconds = 0, sepStartedAt = null) {
+  const isResuming = initialSeconds > 0 || !!sepStartedAt;
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono-sep");
     if (el) el.textContent = Chronometer.format(sec);
-  });
+  }, initialSeconds);
 
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;text-align:center;">
-      <div class="section-title mb-2">SEPARAÇÃO</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;gap:0.5rem;">
+        <div class="section-title" style="margin:0;">SEPARAÇÃO</div>
+        <button id="pause-sep" class="btn btn--ghost btn--sm" style="color:#b45309;border:1px solid #d97706;background:#fff7ed;font-size:0.65rem;padding:0.35rem 0.7rem;letter-spacing:0.15em;">⏸ PAUSAR</button>
+      </div>
       <div class="text-muted text-xs mb-3 cursor" style="letter-spacing:0.15em;">
         PEDIDO ${state.order.code} · ${state.order.items} ITENS · ${state.order.cycle}
       </div>
       <div class="card cyber-chamfer" style="padding:3rem 2rem;">
         <div class="chrono-label mb-1">TEMPO DE SEPARAÇÃO</div>
-        <div class="chrono-display" id="chrono-sep">00:00:00</div>
-        <div class="text-muted text-xs mt-2">OPERADOR: ${state.operator.name}</div>
+        <div class="chrono-display" id="chrono-sep">${Chronometer.format(initialSeconds)}</div>
+        <div class="text-muted text-xs mt-2">OPERADOR: ${state.operator.name}${isResuming ? ' · <span style="color:#b45309;">RETOMADA</span>' : ''}</div>
       </div>
       <button id="finish-sep" class="btn btn--full cyber-chamfer mt-3" style="padding:1rem;">
         ■ FINALIZAR SEPARAÇÃO
@@ -361,12 +397,42 @@ function showSepChrono(page, state, unitId) {
     </div>
   `;
   chrono.start();
-  playStart();
+  if (!isResuming) playStart();
+  const startedAt = sepStartedAt || new Date();
 
   page.querySelector("#finish-sep").addEventListener("click", () => {
     chrono.stop();
     state.sepSeconds = chrono.getSeconds();
+    clearPause(state.operator.id);
     showAskBip(page, state, unitId);
+  });
+
+  page.querySelector("#pause-sep").addEventListener("click", async () => {
+    const ok = await confirmModal({
+      title: "PAUSAR SEPARAÇÃO",
+      message: `Seu progresso do PEDIDO ${state.order.code} fica salvo e você poderá retomar a qualquer momento pelo banner amarelo no topo das telas.`,
+      confirmText: "PAUSAR",
+      cancelText: "CONTINUAR",
+    });
+    if (!ok) return;
+    chrono.stop();
+    savePause({
+      stockistId: state.operator.id,
+      stockistName: state.operator.name,
+      unitId,
+      kind: "SINGLE_ORDER",
+      phase: "separation",
+      route: "/single-order",
+      label: `PEDIDO ${state.order.code}`,
+      elapsedSeconds: chrono.getSeconds(),
+      state: {
+        order: state.order,
+        vd: state.vd,
+        city: state.city,
+        sepStart: startedAt.toISOString(),
+      },
+    });
+    navigate("/dashboard");
   });
 
   return () => chrono.stop();
@@ -401,23 +467,27 @@ function showAskBip(page, state, unitId) {
     );
 }
 
-async function showBipStep(page, state, unitId) {
+async function showBipStep(page, state, unitId, initialSeconds = 0, bipStartedAt = null) {
+  const isResuming = initialSeconds > 0 || !!bipStartedAt;
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
   const usedBoxCodes = await getUsedBoxCodes(unitId);
 
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
-  });
+  }, initialSeconds);
 
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;text-align:center;">
-      <div class="section-title mb-2">BIPAGEM / LACRAÇÃO</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;gap:0.5rem;">
+        <div class="section-title" style="margin:0;">BIPAGEM / LACRAÇÃO${isResuming ? ' <span style="color:#b45309;font-size:0.65rem;letter-spacing:0.15em;">· RETOMADA</span>' : ''}</div>
+        <button id="pause-bip" class="btn btn--ghost btn--sm" style="color:#b45309;border:1px solid #d97706;background:#fff7ed;font-size:0.65rem;padding:0.35rem 0.7rem;letter-spacing:0.15em;">⏸ PAUSAR</button>
+      </div>
       <div class="text-muted text-xs mb-3 cursor">PEDIDO ${state.order.code}</div>
 
       <div class="card cyber-chamfer" style="padding:2rem;">
         <div class="chrono-label mb-1">TEMPO DE BIPAGEM</div>
-        <div class="chrono-display" id="chrono-bip" style="font-size:2.5rem;">00:00:00</div>
+        <div class="chrono-display" id="chrono-bip" style="font-size:2.5rem;">${Chronometer.format(initialSeconds)}</div>
       </div>
 
       <div class="card cyber-chamfer mt-2" style="text-align:left;">
@@ -442,7 +512,38 @@ async function showBipStep(page, state, unitId) {
   let isFinishing = false;
 
   chrono.start();
-  playStart();
+  if (!isResuming) playStart();
+  const bipStart = bipStartedAt || new Date();
+
+  page.querySelector("#pause-bip").addEventListener("click", async () => {
+    if (isFinishing) return;
+    const ok = await confirmModal({
+      title: "PAUSAR BIPAGEM",
+      message: `PEDIDO ${state.order.code} — o tempo decorrido fica salvo. Você poderá retomar pelo banner amarelo no topo.`,
+      confirmText: "PAUSAR",
+      cancelText: "CONTINUAR",
+    });
+    if (!ok) return;
+    chrono.stop();
+    savePause({
+      stockistId: state.operator.id,
+      stockistName: state.operator.name,
+      unitId,
+      kind: "SINGLE_ORDER",
+      phase: "bipping",
+      route: "/single-order",
+      label: `PEDIDO ${state.order.code}`,
+      elapsedSeconds: chrono.getSeconds(),
+      state: {
+        order: state.order,
+        vd: state.vd,
+        city: state.city,
+        sepSeconds: state.sepSeconds,
+        bipStart: bipStart.toISOString(),
+      },
+    });
+    navigate("/dashboard");
+  });
 
   async function finishBipping() {
     if (isFinishing || !/^\d{10}$/.test(boxInput.value)) return;
@@ -543,9 +644,11 @@ async function saveSingleOrder(page, state, unitId, withBipping) {
 
   try {
     await createEvent(eventData);
+    clearPause(state.operator.id);
   } catch {
     try {
       saveEventLocally(eventData);
+      clearPause(state.operator.id);
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `

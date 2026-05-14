@@ -21,6 +21,8 @@ import {
   playComplete,
   playAuraa,
 } from "../services/sound-engine.js";
+import { savePause, clearPause, getPauseFor } from "../services/pause.js";
+import { confirmModal } from "../components/confirm-modal.js";
 
 const VD_CITIES = {
   "VD Palmeira": [
@@ -94,6 +96,49 @@ export async function renderFunctionComplete(container, params) {
 
   state.config = await getGlobalConfig();
   state.unit = await getUnit(unitId);
+
+  // Check if resuming a paused batch
+  const resumeStockistId = params.resume || null;
+  const pauseRecord = resumeStockistId ? getPauseFor(resumeStockistId) : null;
+  if (pauseRecord && pauseRecord.kind === "BATCH" && pauseRecord.unitId === unitId) {
+    state.operator = {
+      id: pauseRecord.stockistId,
+      name: pauseRecord.stockistName,
+    };
+    const s = pauseRecord.state || {};
+    state.orders = s.orders || [];
+    state.bippingOrders = s.bippingOrders || [];
+    state.batchCode = s.batchCode || "";
+    state.importMeta = s.importMeta || null;
+    state.vd = s.vd || null;
+    state.city = s.city || null;
+    state.sepSeconds = s.sepSeconds || 0;
+    state.separationStart = s.separationStart ? new Date(s.separationStart) : null;
+    state.separationEnd = s.separationEnd ? new Date(s.separationEnd) : null;
+    state.bipStart = s.bipStart ? new Date(s.bipStart) : null;
+    if (pauseRecord.phase === "separation") {
+      showStep3Sep(
+        page,
+        state,
+        unitId,
+        pauseRecord.elapsedSeconds || 0,
+        state.separationStart,
+      );
+    } else if (pauseRecord.phase === "bipping") {
+      showStep5Bip(
+        page,
+        state,
+        unitId,
+        pauseRecord.elapsedSeconds || 0,
+        pauseRecord.lockedMap || {},
+        state.bipStart,
+      );
+    } else {
+      showStep1(page, state, unitId);
+    }
+    return () => state.currentChrono?.stop();
+  }
+
   state.operator = await selectOperator(unitId);
   if (!state.operator) {
     navigate("/dashboard");
@@ -343,25 +388,29 @@ function showCitySelection(page, state, unitId, onConfirm) {
 }
 
 // ─── Step 3: Cronômetro separação ────────────────────────────────────────────
-function showStep3Sep(page, state, unitId) {
+function showStep3Sep(page, state, unitId, initialSeconds = 0, sepStartedAt = null) {
+  const isResuming = initialSeconds > 0 || !!sepStartedAt;
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono-sep");
     if (el) el.textContent = Chronometer.format(sec);
-  });
+  }, initialSeconds);
   state.currentChrono = chrono;
 
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;text-align:center;">
-      <div class="section-title mb-2">SEPARAÇÃO EM ANDAMENTO</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;gap:0.5rem;">
+        <div class="section-title" style="margin:0;">SEPARAÇÃO EM ANDAMENTO</div>
+        <button id="pause-sep" class="btn btn--ghost btn--sm" style="color:#b45309;border:1px solid #d97706;background:#fff7ed;font-size:0.65rem;padding:0.35rem 0.7rem;letter-spacing:0.15em;">⏸ PAUSAR</button>
+      </div>
       <div class="text-muted text-xs mb-3 cursor" style="letter-spacing:0.2em;">
         LOTE ${state.batchCode} · ${state.orders.length} ${state.importMeta?.sourceType === "pdf" ? "MATERIAIS" : "PEDIDOS"} · ${state.orders.reduce((s, o) => s + o.items, 0)} ITENS
       </div>
 
       <div class="card cyber-chamfer" style="padding:3rem 2rem;">
         <div class="chrono-label mb-1">TEMPO DE SEPARAÇÃO</div>
-        <div class="chrono-display" id="chrono-sep">00:00:00</div>
+        <div class="chrono-display" id="chrono-sep">${Chronometer.format(initialSeconds)}</div>
         <div class="text-muted text-xs mt-2" style="letter-spacing:0.15em;">
-          OPERADOR: ${state.operator.name}
+          OPERADOR: ${state.operator.name}${isResuming ? ' · <span style="color:#b45309;">RETOMADA</span>' : ''}
         </div>
       </div>
 
@@ -372,15 +421,47 @@ function showStep3Sep(page, state, unitId) {
   `;
 
   chrono.start();
-  playStart();
-  const startedAt = new Date();
+  if (!isResuming) playStart();
+  const startedAt = sepStartedAt || new Date();
 
   page.querySelector("#finish-sep").addEventListener("click", () => {
     chrono.stop();
     state.sepSeconds = chrono.getSeconds();
     state.separationStart = startedAt;
     state.separationEnd = new Date();
+    clearPause(state.operator.id);
     showStep4AskBip(page, state, unitId);
+  });
+
+  page.querySelector("#pause-sep").addEventListener("click", async () => {
+    const ok = await confirmModal({
+      title: "PAUSAR SEPARAÇÃO",
+      message: `Seu progresso do LOTE ${state.batchCode} fica salvo e você poderá retomar a qualquer momento pelo banner amarelo no topo das telas.`,
+      confirmText: "PAUSAR",
+      cancelText: "CONTINUAR",
+    });
+    if (!ok) return;
+    chrono.stop();
+    savePause({
+      stockistId: state.operator.id,
+      stockistName: state.operator.name,
+      unitId,
+      kind: "BATCH",
+      phase: "separation",
+      route: "/function-complete",
+      label: `LOTE ${state.batchCode}`,
+      elapsedSeconds: chrono.getSeconds(),
+      state: {
+        orders: state.orders,
+        bippingOrders: state.bippingOrders,
+        batchCode: state.batchCode,
+        importMeta: state.importMeta,
+        vd: state.vd,
+        city: state.city,
+        separationStart: startedAt.toISOString(),
+      },
+    });
+    navigate("/dashboard");
   });
 
   return () => chrono.stop();
@@ -567,9 +648,11 @@ async function saveOnlySeparation(page, state, unitId) {
 
   try {
     await createEvent(eventData);
+    clearPause(state.operator.id);
   } catch {
     try {
       saveEventLocally(eventData);
+      clearPause(state.operator.id);
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `
@@ -588,7 +671,8 @@ async function saveOnlySeparation(page, state, unitId) {
 }
 
 // ─── Step 5: Bipagem ──────────────────────────────────────────────────────────
-async function showStep5Bip(page, state, unitId) {
+async function showStep5Bip(page, state, unitId, initialSeconds = 0, initialLockedMap = {}, bipStartedAt = null) {
+  const isResuming = initialSeconds > 0 || !!bipStartedAt || Object.keys(initialLockedMap).length > 0;
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
   const usedBoxCodes = await getUsedBoxCodes(unitId);
   const bippingOrders = getBippingOrders(state);
@@ -596,21 +680,24 @@ async function showStep5Bip(page, state, unitId) {
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
-  });
+  }, initialSeconds);
   state.currentChrono = chrono;
 
-  const lockedMap = {};
+  const lockedMap = { ...initialLockedMap };
 
   page.innerHTML = `
     <div style="max-width:700px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;gap:0.5rem;flex-wrap:wrap;">
         <div>
-          <div class="section-title">BIPAGEM / LACRAÇÃO</div>
+          <div class="section-title">BIPAGEM / LACRAÇÃO${isResuming ? ' <span style="color:#b45309;font-size:0.65rem;letter-spacing:0.15em;">· RETOMADA</span>' : ''}</div>
           <div class="text-muted text-xs cursor" style="letter-spacing:0.15em;">LOTE ${state.batchCode}</div>
         </div>
-        <div style="text-align:right;">
-          <div class="chrono-label">TEMPO DE BIPAGEM</div>
-          <div class="chrono-display" id="chrono-bip" style="font-size:2rem;">00:00:00</div>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+          <button id="pause-bip" class="btn btn--ghost btn--sm" style="color:#b45309;border:1px solid #d97706;background:#fff7ed;font-size:0.65rem;padding:0.35rem 0.7rem;letter-spacing:0.15em;">⏸ PAUSAR</button>
+          <div style="text-align:right;">
+            <div class="chrono-label">TEMPO DE BIPAGEM</div>
+            <div class="chrono-display" id="chrono-bip" style="font-size:2rem;">${Chronometer.format(initialSeconds)}</div>
+          </div>
         </div>
       </div>
 
@@ -653,10 +740,65 @@ async function showStep5Bip(page, state, unitId) {
     </div>
   `;
 
-  const bipStart = new Date();
+  const bipStart = bipStartedAt || new Date();
   let isFinishing = false;
   chrono.start();
-  playStart();
+  if (!isResuming) playStart();
+
+  // Restore previously locked boxes when resuming
+  if (isResuming && Object.keys(lockedMap).length > 0) {
+    Object.entries(lockedMap).forEach(([code, val]) => {
+      const inp = page.querySelector(`.order-box-input[data-order="${code}"]`);
+      const statusEl = page.querySelector(`#status-${code}`);
+      const row = page.querySelector(`#row-${code}`);
+      if (inp) {
+        inp.value = val;
+        inp.classList.add("validated");
+      }
+      if (statusEl) {
+        statusEl.textContent = "✓ LACRADO";
+        statusEl.className = "order-status locked";
+      }
+      if (row) row.style.borderLeft = "3px solid var(--accent)";
+    });
+  }
+
+  page.querySelector("#pause-bip").addEventListener("click", async () => {
+    if (isFinishing) return;
+    const lacradas = Object.keys(lockedMap).length;
+    const ok = await confirmModal({
+      title: "PAUSAR BIPAGEM",
+      message: `LOTE ${state.batchCode} — ${lacradas} caixa(s) lacrada(s) e tempo decorrido ficam salvos. Você poderá retomar pelo banner amarelo no topo.`,
+      confirmText: "PAUSAR",
+      cancelText: "CONTINUAR",
+    });
+    if (!ok) return;
+    chrono.stop();
+    savePause({
+      stockistId: state.operator.id,
+      stockistName: state.operator.name,
+      unitId,
+      kind: "BATCH",
+      phase: "bipping",
+      route: "/function-complete",
+      label: `LOTE ${state.batchCode}`,
+      elapsedSeconds: chrono.getSeconds(),
+      state: {
+        orders: state.orders,
+        bippingOrders: state.bippingOrders,
+        batchCode: state.batchCode,
+        importMeta: state.importMeta,
+        vd: state.vd,
+        city: state.city,
+        sepSeconds: state.sepSeconds,
+        separationStart: state.separationStart?.toISOString() || null,
+        separationEnd: state.separationEnd?.toISOString() || null,
+        bipStart: bipStart.toISOString(),
+      },
+      lockedMap: { ...lockedMap },
+    });
+    navigate("/dashboard");
+  });
 
   async function finishBipping() {
     if (isFinishing || Object.keys(lockedMap).length < bippingOrders.length)
@@ -784,9 +926,11 @@ async function saveBatch(page, state, unitId) {
 
   try {
     await createEvent(eventData);
+    clearPause(state.operator.id);
   } catch {
     try {
       saveEventLocally(eventData);
+      clearPause(state.operator.id);
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `

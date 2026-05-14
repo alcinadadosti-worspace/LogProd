@@ -11,6 +11,8 @@ import {
 import { xpBatch } from "../services/xp-engine.js";
 import { Chronometer } from "../components/chronometer.js";
 import { playStart, playComplete, playAuraa } from "../services/sound-engine.js";
+import { savePause, clearPause, getPauseFor } from "../services/pause.js";
+import { confirmModal } from "../components/confirm-modal.js";
 
 const VD_CITIES = {
   "VD Palmeira": [
@@ -77,6 +79,29 @@ export async function renderOnlySeparator(container, params) {
 
   state.config = await getGlobalConfig();
   state.unit = await getUnit(unitId);
+
+  const resumeStockistId = params.resume || null;
+  const pauseRecord = resumeStockistId ? getPauseFor(resumeStockistId) : null;
+  if (
+    pauseRecord &&
+    pauseRecord.kind === "ONLY_SEPARATION" &&
+    pauseRecord.unitId === unitId
+  ) {
+    state.operator = {
+      id: pauseRecord.stockistId,
+      name: pauseRecord.stockistName,
+    };
+    const s = pauseRecord.state || {};
+    state.orders = s.orders || [];
+    state.batchCode = s.batchCode || "";
+    state.importMeta = s.importMeta || null;
+    state.vd = s.vd || null;
+    state.city = s.city || null;
+    const startedAt = s.separationStart ? new Date(s.separationStart) : new Date();
+    showChrono(page, state, unitId, pauseRecord.elapsedSeconds || 0, startedAt);
+    return;
+  }
+
   state.operator = await selectOperator(unitId);
   if (!state.operator) {
     navigate("/dashboard");
@@ -278,22 +303,26 @@ function showCitySelection(page, state, unitId, onConfirm) {
   }
 }
 
-function showChrono(page, state, unitId) {
+function showChrono(page, state, unitId, initialSeconds = 0, sepStartedAt = null) {
+  const isResuming = initialSeconds > 0 || !!sepStartedAt;
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono");
     if (el) el.textContent = Chronometer.format(sec);
-  });
+  }, initialSeconds);
 
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;text-align:center;">
-      <div class="section-title mb-2">SEPARAÇÃO EM ANDAMENTO</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;gap:0.5rem;">
+        <div class="section-title" style="margin:0;">SEPARAÇÃO EM ANDAMENTO</div>
+        <button id="pause-sep" class="btn btn--ghost btn--sm" style="color:#b45309;border:1px solid #d97706;background:#fff7ed;font-size:0.65rem;padding:0.35rem 0.7rem;letter-spacing:0.15em;">⏸ PAUSAR</button>
+      </div>
       <div class="text-muted text-xs mb-3 cursor" style="letter-spacing:0.2em;">
         LOTE ${state.batchCode} · ${state.orders.length} ${state.importMeta?.sourceType === "pdf" ? "MATERIAIS" : "PEDIDOS"} · ${state.orders.reduce((s, o) => s + o.items, 0)} ITENS
       </div>
       <div class="card cyber-chamfer" style="padding:3rem 2rem;">
         <div class="chrono-label mb-1">TEMPO DE SEPARAÇÃO</div>
-        <div class="chrono-display" id="chrono">00:00:00</div>
-        <div class="text-muted text-xs mt-2">OPERADOR: ${state.operator.name}</div>
+        <div class="chrono-display" id="chrono">${Chronometer.format(initialSeconds)}</div>
+        <div class="text-muted text-xs mt-2">OPERADOR: ${state.operator.name}${isResuming ? ' · <span style="color:#b45309;">RETOMADA</span>' : ''}</div>
       </div>
       <button id="finish-btn" class="btn btn--full cyber-chamfer mt-3" style="padding:1rem;">
         ■ FINALIZAR SEPARAÇÃO
@@ -302,13 +331,44 @@ function showChrono(page, state, unitId) {
   `;
 
   chrono.start();
-  playStart();
-  const startedAt = new Date();
+  if (!isResuming) playStart();
+  const startedAt = sepStartedAt || new Date();
 
   page.querySelector("#finish-btn").addEventListener("click", async () => {
     chrono.stop();
     state.sepSeconds = chrono.getSeconds();
+    clearPause(state.operator.id);
     await save(page, state, unitId, startedAt, new Date());
+  });
+
+  page.querySelector("#pause-sep").addEventListener("click", async () => {
+    const ok = await confirmModal({
+      title: "PAUSAR SEPARAÇÃO",
+      message: `Seu progresso do LOTE ${state.batchCode} fica salvo e você poderá retomar a qualquer momento pelo banner amarelo no topo das telas.`,
+      confirmText: "PAUSAR",
+      cancelText: "CONTINUAR",
+    });
+    if (!ok) return;
+    chrono.stop();
+    savePause({
+      stockistId: state.operator.id,
+      stockistName: state.operator.name,
+      unitId,
+      kind: "ONLY_SEPARATION",
+      phase: "separation",
+      route: "/only-separator",
+      label: `LOTE ${state.batchCode}`,
+      elapsedSeconds: chrono.getSeconds(),
+      state: {
+        orders: state.orders,
+        batchCode: state.batchCode,
+        importMeta: state.importMeta,
+        vd: state.vd,
+        city: state.city,
+        separationStart: startedAt.toISOString(),
+      },
+    });
+    navigate("/dashboard");
   });
 
   return () => chrono.stop();
@@ -388,9 +448,11 @@ async function save(page, state, unitId, startedAt, finishedAt) {
 
   try {
     await createEvent(eventData);
+    clearPause(state.operator.id);
   } catch {
     try {
       saveEventLocally(eventData);
+      clearPause(state.operator.id);
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `

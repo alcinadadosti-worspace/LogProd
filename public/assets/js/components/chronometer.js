@@ -3,10 +3,10 @@
  * Survives tab switches (does not freeze — always diffs timestamps).
  */
 export class Chronometer {
-  constructor(onTick) {
+  constructor(onTick, initialSeconds = 0) {
     this._onTick = onTick;
     this._startTime = null;
-    this._elapsed = 0;
+    this._elapsed = Math.max(0, initialSeconds) * 1000;
     this._interval = null;
     this._running = false;
   }

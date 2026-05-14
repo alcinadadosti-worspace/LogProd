@@ -18,6 +18,8 @@ import {
   playComplete,
   playAuraa,
 } from "../services/sound-engine.js";
+import { savePause, clearPause, getPauseFor } from "../services/pause.js";
+import { confirmModal } from "../components/confirm-modal.js";
 
 export async function renderOnlyBipper(container, params) {
   if (!getCurrentUser()) {
@@ -58,6 +60,47 @@ export async function renderOnlyBipper(container, params) {
   };
 
   state.config = await getGlobalConfig();
+
+  const resumeStockistId = params.resume || null;
+  const pauseRecord = resumeStockistId ? getPauseFor(resumeStockistId) : null;
+  if (
+    pauseRecord &&
+    (pauseRecord.kind === "ONLY_BIPPING" ||
+      (pauseRecord.kind === "SINGLE_ORDER" && pauseRecord.route === "/only-bipper")) &&
+    pauseRecord.unitId === unitId
+  ) {
+    state.operator = {
+      id: pauseRecord.stockistId,
+      name: pauseRecord.stockistName,
+    };
+    const s = pauseRecord.state || {};
+    state.orders = s.orders || [];
+    state.bippingOrders = s.bippingOrders || [];
+    state.batchCode = s.batchCode || "";
+    state.singleOrder = s.singleOrder || null;
+    state.importMeta = s.importMeta || null;
+    const bipStartedAt = s.bipStart ? new Date(s.bipStart) : new Date();
+    if (pauseRecord.kind === "ONLY_BIPPING") {
+      showBippingChrono(
+        page,
+        state,
+        unitId,
+        pauseRecord.elapsedSeconds || 0,
+        pauseRecord.lockedMap || {},
+        bipStartedAt,
+      );
+    } else {
+      showSingleOrderBipping(
+        page,
+        state,
+        unitId,
+        pauseRecord.elapsedSeconds || 0,
+        bipStartedAt,
+      );
+    }
+    return;
+  }
+
   state.operator = await selectOperator(unitId);
   if (!state.operator) {
     navigate("/dashboard");
@@ -424,28 +467,39 @@ function showBatchOrderCount(page, state, unitId, onBack) {
   });
 }
 
-async function showBippingChrono(page, state, unitId) {
+async function showBippingChrono(
+  page,
+  state,
+  unitId,
+  initialSeconds = 0,
+  initialLockedMap = {},
+  bipStartedAt = null,
+) {
+  const isResuming = initialSeconds > 0 || !!bipStartedAt || Object.keys(initialLockedMap).length > 0;
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
   const usedBoxCodes = await getUsedBoxCodes(unitId);
   const bippingOrders = getBippingOrders(state);
   const isPdfBipping = state.importMeta?.sourceType === "pdf";
   const showBatchColumn = isPdfBipping || state.bippingOrders?.length > 0;
-  const lockedMap = {};
+  const lockedMap = { ...initialLockedMap };
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
-  });
+  }, initialSeconds);
 
   page.innerHTML = `
     <div style="max-width:700px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;gap:0.5rem;flex-wrap:wrap;">
         <div>
-          <div class="section-title">BIPAGEM / LACRAÇÃO</div>
+          <div class="section-title">BIPAGEM / LACRAÇÃO${isResuming ? ' <span style="color:#b45309;font-size:0.65rem;letter-spacing:0.15em;">· RETOMADA</span>' : ''}</div>
           <div class="text-muted text-xs cursor" style="letter-spacing:0.15em;">LOTE ${state.batchCode}</div>
         </div>
-        <div style="text-align:right;">
-          <div class="chrono-label">TEMPO DE BIPAGEM</div>
-          <div class="chrono-display" id="chrono-bip" style="font-size:2rem;">00:00:00</div>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+          <button id="pause-bip" class="btn btn--ghost btn--sm" style="color:#b45309;border:1px solid #d97706;background:#fff7ed;font-size:0.65rem;padding:0.35rem 0.7rem;letter-spacing:0.15em;">⏸ PAUSAR</button>
+          <div style="text-align:right;">
+            <div class="chrono-label">TEMPO DE BIPAGEM</div>
+            <div class="chrono-display" id="chrono-bip" style="font-size:2rem;">${Chronometer.format(initialSeconds)}</div>
+          </div>
         </div>
       </div>
 
@@ -484,10 +538,59 @@ async function showBippingChrono(page, state, unitId) {
     </div>
   `;
 
-  const bipStart = new Date();
+  const bipStart = bipStartedAt || new Date();
   let isFinishing = false;
   chrono.start();
-  playStart();
+  if (!isResuming) playStart();
+
+  if (isResuming && Object.keys(lockedMap).length > 0) {
+    Object.entries(lockedMap).forEach(([code, val]) => {
+      const inp = page.querySelector(`.order-box-input[data-order="${code}"]`);
+      const statusEl = page.querySelector(`#status-${code}`);
+      const row = page.querySelector(`#row-${code}`);
+      if (inp) {
+        inp.value = val;
+        inp.classList.add("validated");
+      }
+      if (statusEl) {
+        statusEl.textContent = "✓ LACRADO";
+        statusEl.className = "order-status locked";
+      }
+      if (row) row.style.borderLeft = "3px solid var(--accent)";
+    });
+  }
+
+  page.querySelector("#pause-bip").addEventListener("click", async () => {
+    if (isFinishing) return;
+    const lacradas = Object.keys(lockedMap).length;
+    const ok = await confirmModal({
+      title: "PAUSAR BIPAGEM",
+      message: `LOTE ${state.batchCode} — ${lacradas} caixa(s) lacrada(s) e tempo decorrido ficam salvos. Você poderá retomar pelo banner amarelo no topo.`,
+      confirmText: "PAUSAR",
+      cancelText: "CONTINUAR",
+    });
+    if (!ok) return;
+    chrono.stop();
+    savePause({
+      stockistId: state.operator.id,
+      stockistName: state.operator.name,
+      unitId,
+      kind: "ONLY_BIPPING",
+      phase: "bipping",
+      route: "/only-bipper",
+      label: `LOTE ${state.batchCode}`,
+      elapsedSeconds: chrono.getSeconds(),
+      state: {
+        orders: state.orders,
+        bippingOrders: state.bippingOrders,
+        batchCode: state.batchCode,
+        importMeta: state.importMeta,
+        bipStart: bipStart.toISOString(),
+      },
+      lockedMap: { ...lockedMap },
+    });
+    navigate("/dashboard");
+  });
 
   async function finishBipping() {
     if (isFinishing || Object.keys(lockedMap).length < bippingOrders.length)
@@ -560,23 +663,27 @@ async function showBippingChrono(page, state, unitId) {
   return () => chrono.stop();
 }
 
-async function showSingleOrderBipping(page, state, unitId) {
+async function showSingleOrderBipping(page, state, unitId, initialSeconds = 0, bipStartedAt = null) {
+  const isResuming = initialSeconds > 0 || !!bipStartedAt;
   page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
   const usedBoxCodes = await getUsedBoxCodes(unitId);
 
   const chrono = new Chronometer((sec) => {
     const el = page.querySelector("#chrono-bip");
     if (el) el.textContent = Chronometer.format(sec);
-  });
+  }, initialSeconds);
 
   page.innerHTML = `
     <div style="max-width:500px;margin:0 auto;text-align:center;">
-      <div class="section-title mb-2">BIPAGEM / LACRACAO</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;gap:0.5rem;">
+        <div class="section-title" style="margin:0;">BIPAGEM / LACRACAO${isResuming ? ' <span style="color:#b45309;font-size:0.65rem;letter-spacing:0.15em;">· RETOMADA</span>' : ''}</div>
+        <button id="pause-bip" class="btn btn--ghost btn--sm" style="color:#b45309;border:1px solid #d97706;background:#fff7ed;font-size:0.65rem;padding:0.35rem 0.7rem;letter-spacing:0.15em;">⏸ PAUSAR</button>
+      </div>
       <div class="text-muted text-xs mb-3 cursor">PEDIDO ${state.singleOrder.code}</div>
 
       <div class="card cyber-chamfer" style="padding:2rem;">
         <div class="chrono-label mb-1">TEMPO DE BIPAGEM</div>
-        <div class="chrono-display" id="chrono-bip" style="font-size:2.5rem;">00:00:00</div>
+        <div class="chrono-display" id="chrono-bip" style="font-size:2.5rem;">${Chronometer.format(initialSeconds)}</div>
       </div>
 
       <div class="card cyber-chamfer mt-2" style="text-align:left;">
@@ -598,11 +705,38 @@ async function showSingleOrderBipping(page, state, unitId) {
   const boxInput = page.querySelector("#box-code");
   const boxErr = page.querySelector("#box-err");
   const validateBtn = page.querySelector("#validate-box");
-  const bipStart = new Date();
+  const bipStart = bipStartedAt || new Date();
   let isFinishing = false;
 
   chrono.start();
-  playStart();
+  if (!isResuming) playStart();
+
+  page.querySelector("#pause-bip").addEventListener("click", async () => {
+    if (isFinishing) return;
+    const ok = await confirmModal({
+      title: "PAUSAR BIPAGEM",
+      message: `PEDIDO ${state.singleOrder.code} — o tempo decorrido fica salvo. Você poderá retomar pelo banner amarelo no topo.`,
+      confirmText: "PAUSAR",
+      cancelText: "CONTINUAR",
+    });
+    if (!ok) return;
+    chrono.stop();
+    savePause({
+      stockistId: state.operator.id,
+      stockistName: state.operator.name,
+      unitId,
+      kind: "SINGLE_ORDER",
+      phase: "bipping",
+      route: "/only-bipper",
+      label: `PEDIDO ${state.singleOrder.code}`,
+      elapsedSeconds: chrono.getSeconds(),
+      state: {
+        singleOrder: state.singleOrder,
+        bipStart: bipStart.toISOString(),
+      },
+    });
+    navigate("/dashboard");
+  });
 
   async function finishBipping() {
     if (isFinishing || !/^\d{10}$/.test(boxInput.value)) return;
@@ -679,9 +813,11 @@ async function saveSingleOrderBipping(page, state, unitId) {
 
   try {
     await createEvent(eventData);
+    clearPause(state.operator.id);
   } catch {
     try {
       saveEventLocally(eventData);
+      clearPause(state.operator.id);
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `
@@ -808,9 +944,11 @@ async function save(page, state, unitId) {
 
   try {
     await createEvent(eventData);
+    clearPause(state.operator.id);
   } catch {
     try {
       saveEventLocally(eventData);
+      clearPause(state.operator.id);
       document.getElementById("sync-banner")?.classList.add("visible");
     } catch {
       page.innerHTML = `
