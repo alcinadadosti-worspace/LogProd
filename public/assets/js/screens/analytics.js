@@ -576,6 +576,59 @@ export async function renderAnalytics(container, params) {
     const avgAgingHours = avg(agingRows.map((r) => r.hours));
     const delayedOver24h = agingRows.filter((r) => r.hours >= 24).length;
 
+    // ── Slowest operations by stockist (admin only) ──────────────────
+    const OP_KIND_LABEL = {
+      BATCH: "Lote completo",
+      ONLY_SEPARATION: "Lote (só sep.)",
+      ONLY_BIPPING: "Lote (só bip.)",
+      SINGLE_ORDER: "Pedido avulso",
+    };
+    const slowByStockist = {};
+    if (isAdmin) {
+      events.forEach((ev) => {
+        if (
+          !["BATCH", "ONLY_SEPARATION", "ONLY_BIPPING", "SINGLE_ORDER"].includes(
+            ev.type,
+          )
+        )
+          return;
+        const sid = ev.stockistId;
+        if (!sid || !stockistNames[sid]) return;
+        let seconds = 0,
+          code = "—",
+          label = "";
+        if (ev.batch) {
+          seconds =
+            (ev.batch.separationSeconds || 0) +
+            (ev.batch.bippingSeconds || 0);
+          code = ev.batch.batchCode || "—";
+          label = "LOTE " + code;
+        } else if (ev.singleOrder) {
+          seconds =
+            (ev.singleOrder.separationSeconds || 0) +
+            (ev.singleOrder.bippingSeconds || 0);
+          code = ev.singleOrder.orderCode || "—";
+          label = "PEDIDO " + code;
+        } else {
+          return;
+        }
+        if (seconds <= 0) return;
+        if (!slowByStockist[sid]) slowByStockist[sid] = [];
+        slowByStockist[sid].push({
+          seconds,
+          code,
+          label,
+          kind: OP_KIND_LABEL[ev.type] || ev.type,
+          type: ev.type,
+          when: toDate(ev.createdAt),
+          items: ev.batch?.totalItems || ev.singleOrder?.items || 0,
+        });
+      });
+      Object.values(slowByStockist).forEach((list) =>
+        list.sort((a, b) => b.seconds - a.seconds),
+      );
+    }
+
     // ── Per-unit PDF quality & aging (admin only) ─────────────────────
     const unitPdfQuality =
       isAdmin && units.length > 1
@@ -899,6 +952,83 @@ export async function renderAnalytics(container, params) {
         </div>`
             : ""
         }
+      </div>
+      `
+          : ""
+      }
+
+      ${
+        isAdmin && Object.keys(slowByStockist).length > 0
+          ? `
+      <!-- Slowest operations by stockist (admin only) -->
+      <div class="card cyber-chamfer mb-2">
+        <div class="section-title mb-1">🐌 OPERAÇÕES MAIS DEMORADAS POR ESTOQUISTA</div>
+        <div class="text-muted text-xs mb-3" style="font-family:var(--font-terminal);letter-spacing:0.08em;line-height:1.4;">
+          Tempo total = separação + bipagem do mesmo evento. Top 5 por estoquista no período selecionado.
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1rem;">
+          ${Object.entries(slowByStockist)
+            .filter(([, list]) => list.length > 0)
+            .sort(([, a], [, b]) => b[0].seconds - a[0].seconds)
+            .map(([sid, list]) => {
+              const name = stockistNames[sid] || sid;
+              const photo = stockistPhoto(name);
+              const avgSecs = Math.round(
+                list.reduce((s, x) => s + x.seconds, 0) / list.length,
+              );
+              return `
+            <div style="border:1px solid var(--border);padding:0.85rem;">
+              <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border);">
+                ${
+                  photo
+                    ? `<img src="${photo}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid var(--border);flex-shrink:0;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                       <div style="display:none;width:30px;height:30px;border-radius:50%;background:var(--muted);color:var(--accent);align-items:center;justify-content:center;font-family:var(--font-display);font-size:0.85rem;flex-shrink:0;">${name.charAt(0)}</div>`
+                    : `<div style="width:30px;height:30px;border-radius:50%;background:var(--muted);color:var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:0.85rem;flex-shrink:0;">${name.charAt(0)}</div>`
+                }
+                <div style="flex:1;min-width:0;">
+                  <div style="font-family:var(--font-display);font-size:0.75rem;letter-spacing:0.15em;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
+                  <div style="font-family:var(--font-terminal);font-size:0.55rem;color:var(--muted-fg);letter-spacing:0.1em;margin-top:0.1rem;">
+                    ${list.length} op. · média ${fmtTime(avgSecs)}
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:0.4rem;">
+                ${list
+                  .slice(0, 5)
+                  .map((item, idx) => {
+                    const borderColor =
+                      idx === 0
+                        ? "var(--destructive)"
+                        : idx === 1
+                          ? "#f59e0b"
+                          : "var(--border)";
+                    const rankColor =
+                      idx === 0
+                        ? "var(--destructive)"
+                        : idx === 1
+                          ? "#f59e0b"
+                          : "var(--muted-fg)";
+                    return `
+                <div style="display:flex;flex-direction:column;gap:0.2rem;padding:0.45rem 0.6rem;background:var(--muted);border-left:3px solid ${borderColor};font-family:var(--font-terminal);">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;font-size:0.7rem;">
+                    <div style="display:flex;gap:0.5rem;align-items:center;min-width:0;flex:1;">
+                      <span style="color:${rankColor};font-weight:800;font-family:var(--font-display);font-size:0.7rem;flex-shrink:0;">#${idx + 1}</span>
+                      <span style="color:var(--accent);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.label}</span>
+                    </div>
+                    <span style="color:${idx < 2 ? "var(--destructive)" : "var(--fg)"};font-weight:700;flex-shrink:0;">${fmtTime(item.seconds)}</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;gap:0.5rem;font-size:0.55rem;color:var(--muted-fg);letter-spacing:0.1em;">
+                    <span>${item.kind}${item.items ? " · " + item.items + " itens" : ""}</span>
+                    <span>${item.when ? String(item.when.getDate()).padStart(2, "0") + "/" + String(item.when.getMonth() + 1).padStart(2, "0") + " " + String(item.when.getHours()).padStart(2, "0") + "h" : ""}</span>
+                  </div>
+                </div>`;
+                  })
+                  .join("")}
+              </div>
+            </div>`;
+            })
+            .join("")}
+        </div>
       </div>
       `
           : ""
