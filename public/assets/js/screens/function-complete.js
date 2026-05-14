@@ -527,7 +527,7 @@ function serializeOrder(o) {
   return {
     code: o.code,
     cycle: o.cycle,
-    approvedAt: o.approvedAt ? o.approvedAt.toISOString() : null,
+    approvedAt: toIsoOrNull(o.approvedAt),
     items: o.items,
     sourceType: o.sourceType || "spreadsheet",
     material: o.material || null,
@@ -536,6 +536,13 @@ function serializeOrder(o) {
     address: o.address || null,
     addressed: typeof o.addressed === "boolean" ? o.addressed : null,
   };
+}
+
+function toIsoOrNull(v) {
+  if (!v) return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  if (typeof v === "string") return v;
+  return null;
 }
 
 function showPdfOrderCount(page, state, unitId) {
@@ -811,7 +818,20 @@ async function showStep5Bip(page, state, unitId, initialSeconds = 0, initialLock
     state.bipStart = bipStart;
     state.bipEnd = new Date();
     state.boxCodes = { ...lockedMap };
-    await saveBatch(page, state, unitId);
+    try {
+      await saveBatch(page, state, unitId);
+    } catch (err) {
+      console.error("[finishBipping] erro ao salvar:", err);
+      page.innerHTML = `
+        <div class="text-center mt-4">
+          <div style="font-size:1.4rem;color:var(--destructive);">⚠ ERRO AO SALVAR</div>
+          <div class="text-muted mt-2" style="max-width:420px;margin:1rem auto;font-family:var(--font-terminal);font-size:0.75rem;">
+            ${String(err?.message || err).replace(/[<>&]/g, "")}<br><br>
+            Anote os dados do lote <strong>${state.batchCode}</strong> e avise o administrador. As caixas lacradas foram preservadas.
+          </div>
+          <button class="btn btn--ghost cyber-chamfer mt-3" onclick="location.hash='/dashboard'">VOLTAR AO DASHBOARD</button>
+        </div>`;
+    }
   }
 
   function updateProgress() {

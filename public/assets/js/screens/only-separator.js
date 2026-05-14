@@ -378,7 +378,7 @@ function serializeOrder(o) {
   return {
     code: o.code,
     cycle: o.cycle,
-    approvedAt: o.approvedAt?.toISOString() ?? null,
+    approvedAt: toIsoOrNull(o.approvedAt),
     items: o.items,
     sourceType: o.sourceType || "spreadsheet",
     material: o.material || null,
@@ -387,6 +387,13 @@ function serializeOrder(o) {
     address: o.address || null,
     addressed: typeof o.addressed === "boolean" ? o.addressed : null,
   };
+}
+
+function toIsoOrNull(v) {
+  if (!v) return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  if (typeof v === "string") return v;
+  return null;
 }
 
 function serializeImportMeta(meta) {
