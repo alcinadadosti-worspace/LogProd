@@ -627,7 +627,7 @@ async function saveOnlySeparation(page, state, unitId) {
 
   const totalItems = state.orders.reduce((s, o) => s + o.items, 0);
   const xpResult = xpBatch({
-    orders: state.orders.length,
+    orders: 0,
     items: totalItems,
     seconds: state.sepSeconds,
     config: state.config,
@@ -642,7 +642,7 @@ async function saveOnlySeparation(page, state, unitId) {
       batchCode: state.batchCode,
       orders: state.orders.map(serializeOrder),
       importMeta: serializeImportMeta(state.importMeta),
-      totalOrders: state.orders.length,
+      totalOrders: null,
       totalItems,
       separationSeconds: state.sepSeconds,
       separationStartedAt: state.separationStart?.toISOString() ?? null,

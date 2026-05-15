@@ -231,7 +231,7 @@ export async function renderRecords(container, params) {
           when,
           code: ev.batch?.batchCode || "—",
           type: TYPE_LABELS[ev.type] || ev.type,
-          orders: ev.batch?.totalOrders ?? ev.batch?.orders?.length ?? 0,
+          orders: ev.batch?.totalOrders ?? 0,
           items: ev.batch?.totalItems || 0,
           xp: ev.xp || 0,
         });

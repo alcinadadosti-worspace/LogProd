@@ -11,7 +11,7 @@ const COLUMN_ALIASES = {
   order: ['pedido', 'pedido com 9 digitos', 'numero do pedido', 'cod pedido', 'order', 'cod. pedido'],
   cycle: ['ciclo', 'cycle', 'ciclo de entrega'],
   approvedAt: ['data de aprovacao', 'aprovacao', 'data aprovacao', 'approval date', 'dt aprovacao', 'dt. aprovacao'],
-  items: ['itens', 'quantidade de itens', 'qtd itens', 'items', 'qtd. itens', 'quantidade'],
+  items: ['itens', 'quantidade de itens', 'qtd itens', 'items', 'qtd. itens', 'quantidade', 'qtd', 'qtde', 'qte', 'qtd.', 'qtde.', 'total itens', 'total de itens', 'volume', 'pecas', 'peças', 'unidades', 'qtd unidades'],
 };
 
 function findColumn(headers, aliases) {
@@ -345,6 +345,13 @@ export async function parseSpreadsheet(file) {
           ));
         }
 
+        if (colItems < 0) {
+          const sample = headers.filter(Boolean).slice(0, 8).join(', ');
+          return reject(new Error(
+            `Coluna de quantidade de itens não encontrada. Esperado uma coluna chamada "Itens", "Quantidade", "Qtd", "Qtde", "Volume", "Peças" ou similar. Encontrado no cabeçalho: ${sample || '(vazio)'}. Sem essa coluna, o XP fica zerado.`
+          ));
+        }
+
         const orders = [];
         let skipped = 0;
 
@@ -357,7 +364,7 @@ export async function parseSpreadsheet(file) {
             continue;
           }
 
-          const rawItems = colItems >= 0 ? parseInt(row[colItems], 10) : 0;
+          const rawItems = parseInt(row[colItems], 10);
           const itemCount = isNaN(rawItems) || rawItems < 0 ? 0 : rawItems;
 
           let approvedAt = null;
