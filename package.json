@@ -1,0 +1,24 @@
+{
+  "name": "produtividadedoestoque",
+  "version": "1.0.0",
+  "description": "Sistema de produtividade para estoquistas — Grupo Alcina Maria (O Boticário, Alagoas).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alcinadadosti-worspace/LogProd.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/alcinadadosti-worspace/LogProd/issues"
+  },
+  "homepage": "https://github.com/alcinadadosti-worspace/LogProd#readme",
+  "dependencies": {
+    "firebase": "^12.13.0"
+  }
+}
