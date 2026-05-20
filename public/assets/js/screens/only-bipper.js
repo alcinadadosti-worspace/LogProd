@@ -520,7 +520,7 @@ async function showBippingChrono(
               <span class="order-code">${o.code}</span>
               <span class="order-cycle">${showBatchColumn ? state.batchCode : o.cycle}</span>
               <span class="order-items">${showBatchColumn ? "-" : o.items}</span>
-              <input type="text" class="order-box-input" maxlength="10"
+              <input type="text" class="order-box-input" maxlength="12"
                      placeholder="0000000000" data-order="${o.code}" inputmode="numeric">
               <span class="order-status pending" id="status-${o.code}">PENDENTE</span>
             </div>`,
@@ -634,8 +634,10 @@ async function showBippingChrono(
     const inp = e.target;
     if (!inp.classList.contains("order-box-input")) return;
     const code = inp.dataset.order;
-    inp.value = inp.value.replace(/\D/g, "");
-    const val = inp.value;
+    let val = inp.value.replace(/\D/g, "");
+    val = val.replace(/^0+/, "") || "";
+    if (val.length > 10) val = val.slice(0, 10);
+    inp.value = val;
     const statusEl = page.querySelector(`#status-${code}`);
     if (/^\d{10}$/.test(val)) {
       if (usedBoxCodes.has(val)) {
