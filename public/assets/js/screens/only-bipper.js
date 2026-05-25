@@ -7,6 +7,7 @@ import {
   saveEventLocally,
   getGlobalConfig,
   findSeparationBatch,
+  findExistingBatch,
   findSeparationOrder,
   getUsedBoxCodes,
 } from "../services/firestore.js";
@@ -337,7 +338,19 @@ function showBatchSearch(page, state, unitId) {
     searchBtn.textContent = "🔍 BUSCAR LOTE NO SISTEMA";
   });
 
-  useFound.addEventListener("click", () => {
+  useFound.addEventListener("click", async () => {
+    useFound.disabled = true;
+    const existing = await findExistingBatch(unitId, state.batchCode).catch(() => null);
+    if (existing && existing.type === "ONLY_BIPPING") {
+      foundInfo.innerHTML = `<span class="text-destructive">✗ Lote ${state.batchCode} JÁ FOI BIPADO.</span>`;
+      useFound.style.display = "none";
+      return;
+    }
+    if (existing && existing.type === "BATCH") {
+      foundInfo.innerHTML = `<span class="text-destructive">✗ Lote ${state.batchCode} JÁ REGISTRADO COMO COMPLETO.</span>`;
+      useFound.style.display = "none";
+      return;
+    }
     showBatchOrderCount(page, state, unitId, () =>
       showBatchSearch(page, state, unitId),
     );
@@ -394,8 +407,21 @@ function showBatchSearch(page, state, unitId) {
     if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
   });
 
-  manualStart.addEventListener("click", () => {
-    state.batchCode = batchInput.value.trim();
+  manualStart.addEventListener("click", async () => {
+    const bc = batchInput.value.trim();
+    manualStart.disabled = true;
+    const existing = await findExistingBatch(unitId, bc).catch(() => null);
+    if (existing && existing.type === "ONLY_BIPPING") {
+      fileErr.textContent = `> LOTE ${bc} JÁ FOI BIPADO`;
+      manualStart.disabled = false;
+      return;
+    }
+    if (existing && existing.type === "BATCH") {
+      fileErr.textContent = `> LOTE ${bc} JÁ REGISTRADO COMO COMPLETO`;
+      manualStart.disabled = false;
+      return;
+    }
+    state.batchCode = bc;
     state.orders = manualOrders;
     showBatchOrderCount(page, state, unitId, () =>
       showBatchSearch(page, state, unitId),

@@ -102,6 +102,14 @@ async function showConfirmStep(page, state) {
           </div>
         </div>
 
+        <div class="input-group" style="text-align:left;margin-bottom:1rem;">
+          <label class="input-label">OBSERVAÇÃO (OPCIONAL)</label>
+          <div class="input-wrapper">
+            <span class="input-prefix">&gt;</span>
+            <input id="task-note" class="input" type="text" placeholder="Ex: limpeza do setor B" maxlength="200">
+          </div>
+        </div>
+
         <div style="display:flex;gap:0.75rem;">
           <button id="cancel-btn" class="btn btn--ghost btn--full cyber-chamfer">NÃO</button>
           <button id="confirm-btn" class="btn btn--full cyber-chamfer btn--lg">✓ SIM, CONFIRMAR</button>
@@ -118,12 +126,13 @@ async function showConfirmStep(page, state) {
     confirmBtn.textContent = 'SALVANDO...';
     playPosBipagem();
 
+    const note = page.querySelector('#task-note').value.trim();
     const eventData = {
       unitId:     state.unitId,
       stockistId: state.operator.id,
       type:       'TASK',
       xp:         xpTotal,
-      task:       { taskId: state.taskId, quantity: 1 },
+      task:       { taskId: state.taskId, quantity: 1, note: note || null },
     };
 
     try { await createEvent(eventData); }
@@ -142,11 +151,11 @@ async function showConfirmStep(page, state) {
       }
     }
 
-    showSummary(page, state, xpTotal);
+    showSummary(page, state, xpTotal, note);
   });
 }
 
-function showSummary(page, state, xpTotal) {
+function showSummary(page, state, xpTotal, note) {
   page.innerHTML = `
     <div style="max-width:480px;margin:0 auto;">
       <div class="xp-summary cyber-chamfer-lg fade-in">
@@ -157,6 +166,7 @@ function showSummary(page, state, xpTotal) {
         <div class="section-title mb-2">RESUMO</div>
         <div class="stat-row"><span class="stat-label">TAREFA</span><span class="stat-value">${state.taskName}</span></div>
         <div class="stat-row"><span class="stat-label">OPERADOR</span><span class="stat-value">${state.operator.name}</span></div>
+        ${note ? `<div class="stat-row"><span class="stat-label">OBS</span><span class="stat-value">${note}</span></div>` : ''}
         <div class="stat-row"><span class="stat-label">XP</span><span class="stat-value text-accent">${xpTotal.toLocaleString('pt-BR')}</span></div>
       </div>
       <button class="btn btn--full cyber-chamfer mt-3" onclick="location.hash='/dashboard'">
