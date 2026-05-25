@@ -5,16 +5,18 @@ const { WebClient } = require("@slack/web-api");
 // --- Config from environment ---
 const PORT = process.env.PORT || 3000;
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
-const FIREBASE_SA_BASE64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
 const STOCKIST_SLACK_MAP = JSON.parse(process.env.STOCKIST_SLACK_MAP || "{}");
 const TEST_SLACK_ID = process.env.TEST_SLACK_ID || "";
 const API_SECRET = process.env.API_SECRET || "";
 const TIMEZONE_OFFSET = parseInt(process.env.TIMEZONE_OFFSET || "-3", 10);
 
 // --- Init Firebase Admin ---
-const serviceAccount = JSON.parse(
-  Buffer.from(FIREBASE_SA_BASE64, "base64").toString("utf-8")
-);
+const serviceAccount = {
+  type: "service_account",
+  project_id: process.env.FIREBASE_PROJECT_ID,
+  client_email: process.env.FIREBASE_CLIENT_EMAIL,
+  private_key: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+};
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = admin.firestore();
 
