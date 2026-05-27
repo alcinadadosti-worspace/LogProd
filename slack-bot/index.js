@@ -1,6 +1,7 @@
 const express = require("express");
 const admin = require("firebase-admin");
 const { WebClient } = require("@slack/web-api");
+const cron = require("node-cron");
 
 // --- Config from environment ---
 const PORT = process.env.PORT || 3000;
@@ -25,7 +26,7 @@ const slack = new WebClient(SLACK_BOT_TOKEN);
 
 // --- Helpers ---
 
-function todayRange() {
+function dayRange(daysAgo = 0) {
   const now = new Date();
   const utcHour = now.getUTCHours();
   const localHour = utcHour + TIMEZONE_OFFSET;
@@ -33,6 +34,7 @@ function todayRange() {
   const start = new Date(now);
   start.setUTCHours(-TIMEZONE_OFFSET, 0, 0, 0);
   if (localHour < 0) start.setUTCDate(start.getUTCDate() - 1);
+  start.setUTCDate(start.getUTCDate() - daysAgo);
 
   const end = new Date(start);
   end.setUTCDate(end.getUTCDate() + 1);
@@ -177,8 +179,8 @@ function buildNoActivityMessage(stockistName, dateStr) {
 
 // --- Main summary logic ---
 
-async function sendDailySummary() {
-  const { start, end } = todayRange();
+async function sendDailySummary(daysAgo = 0) {
+  const { start, end } = dayRange(daysAgo);
   const dateStr = formatDate(start);
 
   const eventsSnap = await db
@@ -256,7 +258,8 @@ app.get("/send-summary", async (req, res) => {
     return res.status(401).json({ error: "unauthorized" });
   }
   try {
-    const result = await sendDailySummary();
+    const daysAgo = parseInt(req.query.daysAgo || "0", 10);
+    const result = await sendDailySummary(daysAgo);
     console.log(`Resumo enviado: ${result.sent} mensagens em ${result.date}`);
     res.json(result);
   } catch (err) {
@@ -269,6 +272,18 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// --- Cron: 8h Alagoas (UTC-3) = 11h UTC, resumo do dia anterior ---
+cron.schedule("0 11 * * *", async () => {
+  console.log("Cron disparado: enviando resumo do dia anterior...");
+  try {
+    const result = await sendDailySummary(1);
+    console.log(`Cron OK: ${result.sent} mensagens em ${result.date}`);
+  } catch (err) {
+    console.error("Cron ERRO:", err);
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`StockFlow Slack Bot rodando na porta ${PORT}`);
+  console.log("Cron agendado: resumo diario as 08:00 (America/Maceio)");
 });
