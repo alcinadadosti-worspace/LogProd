@@ -272,8 +272,8 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// --- Cron: 8h Alagoas (UTC-3) = 11h UTC, resumo do dia anterior ---
-cron.schedule("0 11 * * *", async () => {
+// --- Cron: 8:30 Alagoas (UTC-3) = 11:30 UTC, resumo do dia anterior ---
+cron.schedule("30 11 * * *", async () => {
   console.log("Cron disparado: enviando resumo do dia anterior...");
   try {
     const result = await sendDailySummary(1);
@@ -285,5 +285,5 @@ cron.schedule("0 11 * * *", async () => {
 
 app.listen(PORT, () => {
   console.log(`StockFlow Slack Bot rodando na porta ${PORT}`);
-  console.log("Cron agendado: resumo diario as 08:00 (America/Maceio)");
+  console.log("Cron agendado: resumo diario as 08:30 (America/Maceio)");
 });
