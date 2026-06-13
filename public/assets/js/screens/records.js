@@ -16,7 +16,11 @@ import {
   periodLabel,
 } from "../components/period-filter.js";
 import { exportStockistsToExcel } from "../services/excel-export.js";
-import { activityHeatmapHTML } from "../components/heatmap.js";
+import {
+  activityHeatmapHTML,
+  activityHeatmapByPersonHTML,
+  assignPersonColors,
+} from "../components/heatmap.js";
 
 const _cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
@@ -178,9 +182,38 @@ export async function renderRecords(container, params) {
     return counts;
   }
 
-  // Card do mapa de calor (string vazia se não houver atividade no período).
+  // Card do mapa de calor por INTENSIDADE (ficha de 1 colaborador).
   function heatmapCard(recs, title) {
     const html = activityHeatmapHTML(countsByDayFromRecords(recs));
+    if (!html) return "";
+    return `
+      <div class="card cyber-chamfer mb-2" style="padding:1rem;overflow-x:auto;">
+        <div class="section-title" style="margin:0 0 0.75rem;">🗓 ${title}</div>
+        ${html}
+      </div>`;
+  }
+
+  // Conta eventos (lotes + pedidos + tarefas) por dia E por pessoa.
+  function dayPersonCountsFromRecords(recs) {
+    const out = {};
+    const add = (when, sid) => {
+      if (!when || Number.isNaN(when.getTime?.()) || when.getTime() <= 0) return;
+      const k = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, "0")}-${String(when.getDate()).padStart(2, "0")}`;
+      if (!out[k]) out[k] = {};
+      out[k][sid] = (out[k][sid] || 0) + 1;
+    };
+    recs.forEach((r) => {
+      r.lotes.forEach((x) => add(x.when, r.stockistId));
+      r.pedidos.forEach((x) => add(x.when, r.stockistId));
+      r.tarefas.forEach((x) => add(x.when, r.stockistId));
+    });
+    return out;
+  }
+
+  // Card do mapa de calor por PESSOA (geral): cada dia na cor de quem mais produziu.
+  function heatmapPersonCard(recs, title) {
+    const people = assignPersonColors(recs.map((r) => ({ id: r.stockistId, name: r.name })));
+    const html = activityHeatmapByPersonHTML(dayPersonCountsFromRecords(recs), people);
     if (!html) return "";
     return `
       <div class="card cyber-chamfer mb-2" style="padding:1rem;overflow-x:auto;">
@@ -500,7 +533,7 @@ export async function renderRecords(container, params) {
                value="${esc(searchValue)}">
       </div>
 
-      ${heatmapCard(records, "ATIVIDADE POR DIA — GERAL")}
+      ${heatmapPersonCard(records, "ATIVIDADE POR DIA — GERAL")}
 
       ${chartsCard(records)}
 
