@@ -69,8 +69,10 @@ export async function renderDashboard(container) {
 }
 
 function renderTopbar(slot, ctx) {
+  const adminName  = ctx.adminName  || 'Alberto';
+  const adminPhoto = ctx.adminPhoto || '/perfis/Alberto.jpg';
   const adminAvatar = ctx.mode === 'admin'
-    ? `<img src="/perfis/Alberto.jpg" alt="Alberto"
+    ? `<img src="${adminPhoto}" alt="${adminName}"
             style="width:38px;height:38px;border-radius:50%;object-fit:cover;
                    border:2px solid var(--accent);box-shadow:var(--neon);flex-shrink:0;"
             onerror="this.style.display='none';">`
@@ -81,7 +83,7 @@ function renderTopbar(slot, ctx) {
         ${adminAvatar}
         <div>
           <div class="topbar-logo">LOGISTICA // PROD.OPS</div>
-          ${ctx.mode === 'admin' ? `<div style="font-family:var(--font-terminal);font-size:0.6rem;color:var(--muted-fg);letter-spacing:0.15em;">ALBERTO · ADMINISTRADOR</div>` : ''}
+          ${ctx.mode === 'admin' ? `<div style="font-family:var(--font-terminal);font-size:0.6rem;color:var(--muted-fg);letter-spacing:0.15em;">${adminName.toUpperCase()} · ADMINISTRADOR</div>` : ''}
         </div>
       </div>
       <div class="topbar-unit">${ctx.unitName}</div>
