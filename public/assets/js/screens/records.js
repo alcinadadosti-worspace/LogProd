@@ -84,6 +84,7 @@ export async function renderRecords(container, params) {
   let searchValue = "";
   let searchDebounce = null;
   let currentData = null;
+  let recCharts = [];
 
   container.innerHTML = `
     <div class="topbar">
@@ -186,6 +187,113 @@ export async function renderRecords(container, params) {
         <div class="section-title" style="margin:0 0 0.75rem;">🗓 ${title}</div>
         ${html}
       </div>`;
+  }
+
+  // Totais por tipo (lotes/pedidos/caixas/tarefas) somando os colaboradores.
+  function typeTotals(recs) {
+    return recs.reduce(
+      (a, r) => {
+        a.lotes += r.lotes.length;
+        a.pedidos += r.pedidos.length;
+        a.caixas += r.caixas.length;
+        a.tarefas += r.tarefas.length;
+        return a;
+      },
+      { lotes: 0, pedidos: 0, caixas: 0, tarefas: 0 },
+    );
+  }
+
+  // Card com os gráficos (vazio se não houver atividade). Os <canvas> são
+  // preenchidos depois por drawCharts(), já com o DOM montado.
+  function chartsCard(recs) {
+    const t = typeTotals(recs);
+    if (t.lotes + t.pedidos + t.caixas + t.tarefas === 0) return "";
+    return `
+      <div class="card cyber-chamfer mb-2" style="padding:1rem;">
+        <div class="section-title" style="margin:0 0 0.75rem;">📊 GRÁFICOS</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.2rem;">
+          <div>
+            <div style="font-family:var(--font-terminal);font-size:0.6rem;letter-spacing:0.12em;color:var(--muted-fg);margin-bottom:0.4rem;">ATIVIDADE POR DIA</div>
+            <div style="position:relative;height:220px;"><canvas id="rec-ch-daily"></canvas></div>
+          </div>
+          <div>
+            <div style="font-family:var(--font-terminal);font-size:0.6rem;letter-spacing:0.12em;color:var(--muted-fg);margin-bottom:0.4rem;">DISTRIBUIÇÃO DE OPERAÇÕES</div>
+            <div style="position:relative;height:220px;"><canvas id="rec-ch-types"></canvas></div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function destroyRecCharts() {
+    recCharts.forEach((c) => {
+      try { c.destroy(); } catch { /* ignora */ }
+    });
+    recCharts = [];
+  }
+
+  // Cria os gráficos do Chart.js nos <canvas> já presentes em `page`.
+  function drawCharts(recs) {
+    if (typeof Chart === "undefined") return;
+    destroyRecCharts();
+
+    const tick = "#6d28d9";
+    const grid = "rgba(124,58,237,0.12)";
+
+    // Atividade por dia (barras) — só dias com atividade, em ordem cronológica.
+    const counts = countsByDayFromRecords(recs);
+    const dayKeys = Object.keys(counts).sort();
+    const barEl = page.querySelector("#rec-ch-daily");
+    if (barEl && dayKeys.length) {
+      const labels = dayKeys.map((k) => { const p = k.split("-"); return `${p[2]}/${p[1]}`; });
+      const vals = dayKeys.map((k) => counts[k]);
+      const maxV = Math.max(...vals);
+      recCharts.push(
+        new Chart(barEl, {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [{
+              data: vals,
+              backgroundColor: vals.map((v) => (v === maxV ? "rgba(0,255,136,0.9)" : "rgba(0,255,136,0.35)")),
+              borderRadius: 3,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: (c) => `${c.parsed.y} evento${c.parsed.y === 1 ? "" : "s"}` } },
+            },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: tick, font: { size: 9 }, maxRotation: 45 } },
+              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tick, font: { size: 9 }, precision: 0 } },
+            },
+          },
+        }),
+      );
+    }
+
+    // Distribuição de operações (rosca).
+    const t = typeTotals(recs);
+    const data = [t.lotes, t.pedidos, t.caixas, t.tarefas];
+    const dnEl = page.querySelector("#rec-ch-types");
+    if (dnEl && data.some((v) => v > 0)) {
+      recCharts.push(
+        new Chart(dnEl, {
+          type: "doughnut",
+          data: {
+            labels: ["Lotes", "Pedidos", "Caixas", "Tarefas"],
+            datasets: [{ data, backgroundColor: ["#059669", "#0284c7", "#7c3aed", "#ec4899"], borderWidth: 0 }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "bottom", labels: { color: tick, font: { size: 10 }, padding: 8 } } },
+          },
+        }),
+      );
+    }
   }
 
   async function load(forceRefresh = false) {
@@ -394,6 +502,8 @@ export async function renderRecords(container, params) {
 
       ${heatmapCard(records, "ATIVIDADE POR DIA — GERAL")}
 
+      ${chartsCard(records)}
+
       <div id="rec-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem;"></div>
     `;
 
@@ -409,6 +519,7 @@ export async function renderRecords(container, params) {
     });
 
     renderGridContent(records);
+    drawCharts(records);
   }
 
   function renderGridContent(records) {
@@ -559,6 +670,8 @@ export async function renderRecords(container, params) {
 
       ${heatmapCard([rec], "ATIVIDADE POR DIA")}
 
+      ${chartsCard([rec])}
+
       <div id="detail-content"></div>
     `;
 
@@ -581,6 +694,7 @@ export async function renderRecords(container, params) {
     });
 
     renderDetailContent(rec);
+    drawCharts([rec]);
   }
 
   function tabButton(key, icon, label, count, color) {
@@ -746,5 +860,6 @@ export async function renderRecords(container, params) {
       clearTimeout(searchDebounce);
       searchDebounce = null;
     }
+    destroyRecCharts();
   };
 }
