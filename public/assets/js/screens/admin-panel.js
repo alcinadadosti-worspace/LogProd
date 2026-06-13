@@ -8,6 +8,7 @@ import {
   getPauseEvents,
 } from '../services/firestore.js';
 import { stockistPhoto } from '../services/photos.js';
+import { periodButtons, customRangeBar, attachPeriodControls } from '../components/period-filter.js';
 
 export async function renderAdminPanel(container) {
   if (!getCurrentUser()) { navigate('/login'); return; }
@@ -490,6 +491,7 @@ async function renderPauses(el) {
   el.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
 
   let period = 'month';
+  let customRange = { start: '', end: '' };
 
   function fmtDuration(secs) {
     if (!secs || secs < 0) return '—';
@@ -520,10 +522,10 @@ async function renderPauses(el) {
 
   async function load() {
     el.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div></div>`;
-    const { startDate } = dateRangeForPeriod(period);
+    const { startDate, endDate } = dateRangeForPeriod(period, customRange);
     let pauses;
     try {
-      pauses = await getPauseEvents({ startDate, maxDocs: 1000 });
+      pauses = await getPauseEvents({ startDate, endDate, maxDocs: 1000 });
     } catch (err) {
       el.innerHTML = `<div class="card cyber-chamfer text-center" style="padding:2rem;"><div class="text-destructive">Erro ao carregar: ${String(err.message || err)}</div></div>`;
       return;
@@ -572,20 +574,15 @@ async function renderPauses(el) {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
           <div class="section-title" style="margin:0;">⏸ TEMPO DE PAUSA ACUMULADO</div>
           <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-            ${['today', 'week', 'month', 'all']
-              .map(
-                (p) => `
-              <button class="filter-btn period-btn ${p === period ? 'active' : ''}" data-period="${p}">
-                ${p === 'today' ? 'HOJE' : p === 'week' ? 'SEMANA' : p === 'month' ? 'MÊS' : 'SEMPRE'}
-              </button>`,
-              )
-              .join('')}
+            ${periodButtons(period)}
           </div>
         </div>
         <div class="text-muted text-xs mt-2" style="font-family:var(--font-terminal);letter-spacing:0.08em;line-height:1.4;">
           Pausas concluídas (pausadas e retomadas) no período. O tempo NÃO conta como trabalho — é tempo decorrido entre clicar PAUSAR e RETOMAR. ${pauses.length} ciclo(s) registrado(s).
         </div>
       </div>
+
+      ${customRangeBar(customRange, period === 'custom', '0 0 1rem')}
 
       ${records.length === 0
         ? `<div class="card cyber-chamfer text-center" style="padding:2rem;color:var(--muted-fg);font-family:var(--font-terminal);font-size:0.8rem;">Sem pausas registradas no período.</div>`
@@ -667,11 +664,10 @@ async function renderPauses(el) {
         `}
     `;
 
-    el.querySelectorAll('.period-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        period = btn.dataset.period;
-        load();
-      });
+    attachPeriodControls(el, (newPeriod, custom) => {
+      period = newPeriod;
+      if (custom) customRange = custom;
+      load();
     });
 
     el.querySelectorAll('.pause-detail-btn').forEach((btn) => {

@@ -1,6 +1,7 @@
 import { getSessionContext, logout, getCurrentUser } from '../auth.js';
 import { navigate } from '../router.js';
 import { getUnit, getAllUnits, getTasks, getEvents, computeRanking, dateRangeForPeriod, flushPendingEvents, getPendingEvents } from '../services/firestore.js';
+import { periodButtons, customRangeBar, attachPeriodControls } from '../components/period-filter.js';
 
 export async function renderDashboard(container) {
   const user = getCurrentUser();
@@ -154,12 +155,9 @@ async function loadUnitContent(el, unitId, tasks, isAdmin) {
         </a>
       </div>
       <div class="filter-bar" id="rank-filters">
-        ${['today','week','month','all'].map((p, i) => `
-          <button class="filter-btn ${i===2?'active':''}" data-period="${p}">
-            ${p === 'today' ? 'HOJE' : p === 'week' ? 'SEMANA' : p === 'month' ? 'MÊS' : 'SEMPRE'}
-          </button>
-        `).join('')}
+        ${periodButtons('month')}
       </div>
+      ${customRangeBar({ start: '', end: '' }, false, '0 0 1rem')}
       <div class="card cyber-chamfer" id="ranking-card" style="padding:0;">
         <div class="text-center text-muted text-sm" style="padding:2rem;">
           <div class="spinner" style="margin:0 auto 1rem;"></div>
@@ -189,24 +187,22 @@ async function loadUnitContent(el, unitId, tasks, isAdmin) {
 
   // Ranking filters
   let currentPeriod = 'month';
-  el.querySelectorAll('.filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      el.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentPeriod = btn.dataset.period;
-      loadRanking(el, unit, currentPeriod);
-    });
+  let customRange = { start: '', end: '' };
+  attachPeriodControls(el, (newPeriod, custom) => {
+    currentPeriod = newPeriod;
+    if (custom) customRange = custom;
+    loadRanking(el, unit, currentPeriod, customRange);
   });
 
-  loadRanking(el, unit, currentPeriod);
+  loadRanking(el, unit, currentPeriod, customRange);
 }
 
-async function loadRanking(el, unit, period) {
+async function loadRanking(el, unit, period, custom) {
   const rankCard = el.querySelector('#ranking-card');
   if (!rankCard) return;
 
   try {
-    const { startDate, endDate } = dateRangeForPeriod(period);
+    const { startDate, endDate } = dateRangeForPeriod(period, custom);
     const events = await getEvents({ unitId: unit.id, startDate, endDate, maxDocs: 500 });
 
     const stockistMap = {};

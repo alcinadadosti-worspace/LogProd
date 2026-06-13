@@ -9,6 +9,11 @@ import {
   computeRanking,
 } from "../services/firestore.js";
 import { stockistPhoto } from "../services/photos.js";
+import {
+  periodButtons,
+  customRangeBar,
+  attachPeriodControls,
+} from "../components/period-filter.js";
 
 // Cache de 5 min para analytics — evita centenas de leituras desnecessárias
 const _cache = new Map();
@@ -165,6 +170,7 @@ export async function renderAnalytics(container, params) {
 
   const isAdmin = ctx.mode === "admin";
   let period = params.period || "month";
+  let customRange = { start: "", end: "" };
 
   container.innerHTML = `
     <div class="topbar">
@@ -175,17 +181,11 @@ export async function renderAnalytics(container, params) {
              color:var(--muted-fg);letter-spacing:0.1em;background:var(--muted);padding:0.15rem 0.4rem;"></div>
       </div>
       <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">
-        ${["today", "week", "month", "all"]
-          .map(
-            (p) => `
-          <button class="filter-btn period-btn ${p === period ? "active" : ""}" data-period="${p}">
-            ${p === "today" ? "HOJE" : p === "week" ? "SEMANA" : p === "month" ? "MÊS" : "SEMPRE"}
-          </button>`,
-          )
-          .join("")}
+        ${periodButtons(period)}
         <button id="refresh-btn" class="btn btn--ghost btn--sm" title="Forçar atualização">↺</button>
       </div>
     </div>
+    ${customRangeBar(customRange, period === "custom")}
     <div class="page screen-enter" id="an-page">
       <div class="text-center mt-4">
         <div class="spinner" style="margin:0 auto;"></div>
@@ -197,15 +197,10 @@ export async function renderAnalytics(container, params) {
   container
     .querySelector("#back-btn")
     .addEventListener("click", () => navigate("/dashboard"));
-  container.querySelectorAll(".period-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      container
-        .querySelectorAll(".period-btn")
-        .forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      period = btn.dataset.period;
-      load();
-    });
+  attachPeriodControls(container, (newPeriod, custom) => {
+    period = newPeriod;
+    if (custom) customRange = custom;
+    load();
   });
   container
     .querySelector("#refresh-btn")
@@ -215,7 +210,7 @@ export async function renderAnalytics(container, params) {
   const cacheBadge = container.querySelector("#cache-badge");
 
   async function load(forceRefresh = false) {
-    const cacheKey = `${period}:${isAdmin ? "admin" : ctx.unitId}`;
+    const cacheKey = `${period}:${customRange.start}:${customRange.end}:${isAdmin ? "admin" : ctx.unitId}`;
 
     if (!forceRefresh) {
       const hit = _cache.get(cacheKey);
@@ -232,20 +227,20 @@ export async function renderAnalytics(container, params) {
     page.innerHTML = `<div class="text-center mt-4"><div class="spinner" style="margin:0 auto;"></div><div class="text-muted mt-2" style="font-family:var(--font-terminal);letter-spacing:0.2em;font-size:0.75rem;">PROCESSANDO DADOS...</div></div>`;
 
     try {
-      const { startDate } = dateRangeForPeriod(period);
+      const { startDate, endDate } = dateRangeForPeriod(period, customRange);
       let events = [],
         units = [],
         stockistNames = {};
 
       if (isAdmin) {
         [events, units] = await Promise.all([
-          getAllEvents({ startDate, maxDocs: 1000 }),
+          getAllEvents({ startDate, endDate, maxDocs: 1000 }),
           getAllUnits(),
         ]);
       } else {
         const [unit, evs] = await Promise.all([
           getUnit(ctx.unitId),
-          getEvents({ unitId: ctx.unitId, startDate, maxDocs: 500 }),
+          getEvents({ unitId: ctx.unitId, startDate, endDate, maxDocs: 500 }),
         ]);
         events = evs;
         units = unit ? [unit] : [];

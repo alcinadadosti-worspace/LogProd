@@ -438,7 +438,7 @@ export function computeRanking(events) {
 }
 
 /** Date range helpers */
-export function dateRangeForPeriod(period) {
+export function dateRangeForPeriod(period, custom) {
   const now = new Date();
   const start = new Date(now);
   switch (period) {
@@ -452,10 +452,34 @@ export function dateRangeForPeriod(period) {
       start.setDate(1);
       start.setHours(0, 0, 0, 0);
       return { startDate: start };
+    case "custom": {
+      // custom = { start: "YYYY-MM-DD", end: "YYYY-MM-DD" } vindo de <input type="date">
+      const range = {};
+      const s = parseLocalDate(custom?.start);
+      const e = parseLocalDate(custom?.end);
+      if (s) {
+        s.setHours(0, 0, 0, 0);
+        range.startDate = s;
+      }
+      if (e) {
+        e.setHours(23, 59, 59, 999);
+        range.endDate = e;
+      }
+      return range;
+    }
     case "all":
     default:
       return {};
   }
+}
+
+// Converte "YYYY-MM-DD" em Date no fuso LOCAL — evita o deslocamento de
+// new Date("2026-06-01"), que é interpretado como UTC e "volta" um dia no Brasil.
+function parseLocalDate(str) {
+  if (!str) return null;
+  const [y, m, d] = String(str).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
 }
 
 /** Local event queue for offline fallback. Throws if localStorage quota is exceeded. */
