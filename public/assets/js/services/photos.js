@@ -9,6 +9,7 @@ const PHOTOS = {
   'Paulo Cesar':    '/perfis/Paulo Cesar.jpg',
   'Pedro Lucas':    '/perfis/Pedro Lucas.jpg',
   'Robéria Gilo':   '/perfis/Robéria Gilo.png',
+  'Samuel':         '/perfis/Samuel.png',
   'Thalys Gomes':   '/perfis/Thalys Gomes.jpg',
   'Yuri Castro':    '/perfis/Yuri Castro.jpg',
 };
