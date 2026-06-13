@@ -13,7 +13,9 @@ import {
   periodButtons,
   customRangeBar,
   attachPeriodControls,
+  periodLabel,
 } from "../components/period-filter.js";
+import { exportStockistsToExcel } from "../services/excel-export.js";
 
 const _cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
@@ -92,6 +94,7 @@ export async function renderRecords(container, params) {
       </div>
       <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">
         ${periodButtons(period)}
+        <button id="export-btn" class="btn btn--sm btn--secondary cyber-chamfer-sm" title="Exportar Excel (todos os colaboradores)">⬇ EXCEL</button>
         <button id="refresh-btn" class="btn btn--ghost btn--sm" title="Forçar atualização">↺</button>
       </div>
     </div>
@@ -116,9 +119,46 @@ export async function renderRecords(container, params) {
   container
     .querySelector("#refresh-btn")
     .addEventListener("click", () => load(true));
+  container
+    .querySelector("#export-btn")
+    .addEventListener("click", () => exportToExcel());
 
   const page = container.querySelector("#rec-page");
   const cacheBadge = container.querySelector("#cache-badge");
+
+  // Transforma "Últimos 7 dias" em "ultimos-7-dias" para nome de arquivo.
+  function slug(s) {
+    return (
+      String(s)
+        .normalize("NFD")
+        .replace(/\p{Diacritic}/gu, "")
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase() || "periodo"
+    );
+  }
+
+  // Exporta para Excel (uma aba por colaborador). Sem `only` = todos;
+  // com `only` (stockistId) = apenas aquele colaborador.
+  function exportToExcel(only = null) {
+    if (!currentData) {
+      alert("Aguarde o carregamento dos dados antes de exportar.");
+      return;
+    }
+    const byStockist = buildPerStockist(currentData);
+    let records = Object.values(byStockist).sort((a, b) => b.xp - a.xp);
+    if (only) records = records.filter((r) => r.stockistId === only);
+
+    const label = periodLabel(period, customRange);
+    const filename = only
+      ? `registros_${slug(records[0]?.name || only)}_${slug(label)}.xlsx`
+      : `registros_${slug(label)}.xlsx`;
+    try {
+      exportStockistsToExcel(records, { filename, periodLabel: label });
+    } catch (err) {
+      alert(err.message || "Falha ao exportar.");
+    }
+  }
 
   async function load(forceRefresh = false) {
     const cacheKey = `${period}:${customRange.start}:${customRange.end}:${isAdmin ? "admin" : ctx.unitId}`;
@@ -476,6 +516,7 @@ export async function renderRecords(container, params) {
               ${fmtN(rec.xp)} XP · ${rec.lotes.length + rec.pedidos.length + rec.tarefas.length} evento(s) no período
             </div>
           </div>
+          <button id="export-one" class="btn btn--sm btn--secondary cyber-chamfer-sm" style="font-size:0.7rem;" title="Exportar Excel de ${esc(rec.name)}">⬇ EXCEL</button>
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.5rem;margin-top:1rem;">
@@ -495,6 +536,10 @@ export async function renderRecords(container, params) {
         selectedStockistId = null;
         renderCurrentView();
       });
+
+    page
+      .querySelector("#export-one")
+      ?.addEventListener("click", () => exportToExcel(rec.stockistId));
 
     page.querySelectorAll(".tab-btn-rec").forEach((btn) => {
       btn.addEventListener("click", () => {

@@ -16,6 +16,27 @@ const LABELS = {
   custom: "PERSONALIZADO",
 };
 
+/** Rótulo legível do período — para nome de arquivo e cabeçalhos de exportação. */
+export function periodLabel(period, custom) {
+  const fmt = (s) => (s ? s.split("-").reverse().join("/") : "");
+  switch (period) {
+    case "today":
+      return "Hoje";
+    case "week":
+      return "Últimos 7 dias";
+    case "month":
+      return "Este mês";
+    case "custom":
+      if (custom?.start && custom?.end) return `${fmt(custom.start)} a ${fmt(custom.end)}`;
+      if (custom?.start) return `A partir de ${fmt(custom.start)}`;
+      if (custom?.end) return `Até ${fmt(custom.end)}`;
+      return "Personalizado";
+    case "all":
+    default:
+      return "Todos";
+  }
+}
+
 /** Botões de período (HTML). `period` marca qual fica ativo. */
 export function periodButtons(period) {
   return ORDER.map(
