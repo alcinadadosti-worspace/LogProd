@@ -16,6 +16,7 @@ import {
   periodLabel,
 } from "../components/period-filter.js";
 import { exportStockistsToExcel } from "../services/excel-export.js";
+import { activityHeatmapHTML } from "../components/heatmap.js";
 
 const _cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
@@ -158,6 +159,33 @@ export async function renderRecords(container, params) {
     } catch (err) {
       alert(err.message || "Falha ao exportar.");
     }
+  }
+
+  // Conta eventos (lotes + pedidos + tarefas) por dia — mesma métrica dos cards.
+  function countsByDayFromRecords(recs) {
+    const counts = {};
+    const add = (when) => {
+      if (!when || Number.isNaN(when.getTime?.()) || when.getTime() <= 0) return;
+      const k = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, "0")}-${String(when.getDate()).padStart(2, "0")}`;
+      counts[k] = (counts[k] || 0) + 1;
+    };
+    recs.forEach((r) => {
+      r.lotes.forEach((x) => add(x.when));
+      r.pedidos.forEach((x) => add(x.when));
+      r.tarefas.forEach((x) => add(x.when));
+    });
+    return counts;
+  }
+
+  // Card do mapa de calor (string vazia se não houver atividade no período).
+  function heatmapCard(recs, title) {
+    const html = activityHeatmapHTML(countsByDayFromRecords(recs));
+    if (!html) return "";
+    return `
+      <div class="card cyber-chamfer mb-2" style="padding:1rem;overflow-x:auto;">
+        <div class="section-title" style="margin:0 0 0.75rem;">🗓 ${title}</div>
+        ${html}
+      </div>`;
   }
 
   async function load(forceRefresh = false) {
@@ -364,6 +392,8 @@ export async function renderRecords(container, params) {
                value="${esc(searchValue)}">
       </div>
 
+      ${heatmapCard(records, "ATIVIDADE POR DIA — GERAL")}
+
       <div id="rec-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem;"></div>
     `;
 
@@ -526,6 +556,8 @@ export async function renderRecords(container, params) {
           ${tabButton("tarefas", "🎯", "TAREFAS", rec.tarefas.length, "#ec4899")}
         </div>
       </div>
+
+      ${heatmapCard([rec], "ATIVIDADE POR DIA")}
 
       <div id="detail-content"></div>
     `;
