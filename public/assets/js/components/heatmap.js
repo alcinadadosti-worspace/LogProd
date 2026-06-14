@@ -43,6 +43,28 @@ function levelOf(count, max) {
   return 4;
 }
 
+// Lista [ano, mês] de start..end (inclusive), no máx. 24 (a chamada limita a 12).
+function monthsBetween(start, end) {
+  const months = [];
+  let y = start.getFullYear();
+  let m = start.getMonth();
+  let guard = 0;
+  while ((y < end.getFullYear() || (y === end.getFullYear() && m <= end.getMonth())) && guard < 24) {
+    months.push([y, m]);
+    if (++m > 11) { m = 0; y++; }
+    guard++;
+  }
+  return months;
+}
+
+function hexToRgba(hex, a) {
+  const h = String(hex).replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
 // Atribui uma cor estável a cada pessoa (ordenada por id), para o mapa por pessoa.
 export function assignPersonColors(stockists) {
   return (stockists || [])
@@ -75,15 +97,7 @@ function monthGridHTML(year, month, cellFn) {
 
 // Monta o calendário (1+ meses) entre start e end, com a legenda fornecida.
 function renderCalendar(start, end, cellFn, legendHTML) {
-  const months = [];
-  let y = start.getFullYear();
-  let m = start.getMonth();
-  let guard = 0;
-  while ((y < end.getFullYear() || (y === end.getFullYear() && m <= end.getMonth())) && guard < 24) {
-    months.push([y, m]);
-    if (++m > 11) { m = 0; y++; }
-    guard++;
-  }
+  const months = monthsBetween(start, end);
   const truncated = months.length > 12;
   const display = truncated ? months.slice(-12) : months;
   const grids = display.map(([yy, mm]) => monthGridHTML(yy, mm, cellFn)).join("");
@@ -124,55 +138,81 @@ export function activityHeatmapHTML(countsByDay) {
   return renderCalendar(parseKey(sorted[0]), parseKey(sorted[sorted.length - 1]), cellFn, legend);
 }
 
+// Bloco de um mês no modo "linhas por pessoa": linhas = pessoas, colunas = dias.
+function monthRowsBlock(year, month, byDay, rows, max) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  const header =
+    `<div></div>` +
+    days.map((d) => `<div style="font-size:7px;color:var(--muted-fg);text-align:center;">${d}</div>`).join("");
+
+  const body = rows
+    .map((p) => {
+      const label = `<div style="font-family:var(--font-terminal);font-size:0.62rem;color:var(--fg);display:flex;align-items:center;gap:0.35rem;white-space:nowrap;overflow:hidden;"><span style="width:11px;height:11px;border-radius:2px;background:${p.color};flex-shrink:0;"></span>${esc(p.name)}</div>`;
+      const cells = days
+        .map((d) => {
+          const c = (byDay[`${year}-${pad(month + 1)}-${pad(d)}`] || {})[p.id] || 0;
+          const dateStr = `${pad(d)}/${pad(month + 1)}/${year}`;
+          if (c <= 0) {
+            return `<div title="${esc(p.name)} · ${dateStr} — sem atividade" style="width:16px;height:16px;border-radius:2px;${EMPTY_STYLE}"></div>`;
+          }
+          const alpha = [0, 0.32, 0.52, 0.74, 0.96][levelOf(c, max)];
+          return `<div title="${esc(p.name)} · ${dateStr} — ${c} evento${c === 1 ? "" : "s"}" style="width:16px;height:16px;border-radius:2px;background:${hexToRgba(p.color, alpha)};border:1px solid ${hexToRgba(p.color, Math.min(1, alpha + 0.12))};"></div>`;
+        })
+        .join("");
+      return label + cells;
+    })
+    .join("");
+
+  return `
+    <div style="margin-bottom:1rem;">
+      <div style="font-family:var(--font-terminal);font-size:0.58rem;letter-spacing:0.12em;color:var(--muted-fg);margin-bottom:0.4rem;">${MONTHS[month]} / ${year}</div>
+      <div style="display:grid;grid-template-columns:118px repeat(${daysInMonth},16px);gap:3px;align-items:center;width:max-content;">
+        ${header}${body}
+      </div>
+    </div>`;
+}
+
 /**
- * Mapa por PESSOA: cada dia recebe a cor de quem mais produziu nele.
+ * Mapa "linhas por pessoa": cada pessoa é uma linha (na cor dela), as colunas
+ * são os dias e a intensidade mostra quanto fez em cada dia. Todos sempre
+ * aparecem — justo independentemente de quem produz mais.
  * @param dayPersonCounts  { "YYYY-MM-DD": { stockistId: quantidade } }
  * @param people           [{ id, name, color }] (use assignPersonColors)
  */
-export function activityHeatmapByPersonHTML(dayPersonCounts, people) {
+export function activityRowsHeatmapHTML(dayPersonCounts, people) {
   const colorById = {};
   const nameById = {};
   (people || []).forEach((p) => { colorById[p.id] = p.color; nameById[p.id] = p.name; });
 
-  // Por dia: lista de { id, count } ordenada (dominante primeiro).
-  const dayInfo = {};
+  const byDay = dayPersonCounts || {};
   const totals = {};
-  for (const [key, perPerson] of Object.entries(dayPersonCounts || {})) {
-    const parts = Object.entries(perPerson)
-      .filter(([, c]) => c > 0)
-      .map(([id, count]) => ({ id, count }));
-    if (!parts.length) continue;
-    parts.sort((a, b) => b.count - a.count);
-    dayInfo[key] = parts;
-    parts.forEach((p) => { totals[p.id] = (totals[p.id] || 0) + p.count; });
+  let globalMax = 1;
+  const activeKeys = [];
+  for (const [key, perPerson] of Object.entries(byDay)) {
+    let any = false;
+    for (const [id, c] of Object.entries(perPerson)) {
+      if (c > 0) {
+        any = true;
+        totals[id] = (totals[id] || 0) + c;
+        if (c > globalMax) globalMax = c;
+      }
+    }
+    if (any) activeKeys.push(key);
   }
-  const activeKeys = Object.keys(dayInfo);
   if (activeKeys.length === 0) return "";
 
-  const cellFn = (d, month, year, key) => {
-    const dateStr = `${pad(d)}/${pad(month + 1)}/${year}`;
-    const parts = dayInfo[key];
-    if (!parts) return { style: EMPTY_STYLE, title: `${dateStr} — sem atividade` };
-    const color = colorById[parts[0].id] || "#888";
-    const list = parts.map((p) => `${esc(nameById[p.id] || p.id)} (${p.count})`).join(", ");
-    return { style: `background:${color};border:1px solid ${color};`, title: `${dateStr} — ${list}` };
-  };
+  // Uma linha por pessoa presente, ordenada por atividade total (mais ativo no topo).
+  const rows = Object.keys(totals)
+    .sort((a, b) => totals[b] - totals[a])
+    .map((id) => ({ id, name: nameById[id] || id, color: colorById[id] || "#888" }));
 
-  // Legenda: só quem aparece, ordenado por atividade total (mais ativo primeiro).
-  const legendPeople = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
-  const legend = `
-    <div style="display:flex;flex-wrap:wrap;gap:0.5rem 0.9rem;margin-top:0.7rem;">
-      ${legendPeople
-        .map(
-          (id) => `
-        <span style="display:flex;align-items:center;gap:0.35rem;font-family:var(--font-terminal);font-size:0.62rem;color:var(--fg);">
-          <span style="width:12px;height:12px;border-radius:2px;background:${colorById[id] || "#888"};"></span>
-          ${esc(nameById[id] || id)}
-        </span>`,
-        )
-        .join("")}
-    </div>`;
+  const sorted = activeKeys.slice().sort();
+  const months = monthsBetween(parseKey(sorted[0]), parseKey(sorted[sorted.length - 1]));
+  const truncated = months.length > 12;
+  const display = truncated ? months.slice(-12) : months;
 
-  const sortedKeys = activeKeys.slice().sort();
-  return renderCalendar(parseKey(sortedKeys[0]), parseKey(sortedKeys[sortedKeys.length - 1]), cellFn, legend);
+  const blocks = display.map(([y, m]) => monthRowsBlock(y, m, byDay, rows, globalMax)).join("");
+  return `${blocks}${truncated ? `<div style="font-family:var(--font-terminal);font-size:0.55rem;color:var(--muted-fg);">Mostrando os últimos 12 meses.</div>` : ""}`;
 }

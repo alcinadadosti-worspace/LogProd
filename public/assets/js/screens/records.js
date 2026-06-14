@@ -18,7 +18,7 @@ import {
 import { exportStockistsToExcel } from "../services/excel-export.js";
 import {
   activityHeatmapHTML,
-  activityHeatmapByPersonHTML,
+  activityRowsHeatmapHTML,
   assignPersonColors,
 } from "../components/heatmap.js";
 
@@ -210,10 +210,10 @@ export async function renderRecords(container, params) {
     return out;
   }
 
-  // Card do mapa de calor por PESSOA (geral): cada dia na cor de quem mais produziu.
+  // Card do mapa de calor GERAL: uma linha por pessoa (cor da pessoa, intensidade por dia).
   function heatmapPersonCard(recs, title) {
     const people = assignPersonColors(recs.map((r) => ({ id: r.stockistId, name: r.name })));
-    const html = activityHeatmapByPersonHTML(dayPersonCountsFromRecords(recs), people);
+    const html = activityRowsHeatmapHTML(dayPersonCountsFromRecords(recs), people);
     if (!html) return "";
     return `
       <div class="card cyber-chamfer mb-2" style="padding:1rem;overflow-x:auto;">
