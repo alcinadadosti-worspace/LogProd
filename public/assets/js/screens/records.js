@@ -182,9 +182,25 @@ export async function renderRecords(container, params) {
     return counts;
   }
 
-  // Card do mapa de calor por INTENSIDADE (ficha de 1 colaborador).
+  // XP por dia (lotes + pedidos + tarefas) — usado no mapa de calor.
+  function xpByDayFromRecords(recs) {
+    const out = {};
+    const add = (when, xp) => {
+      if (!when || Number.isNaN(when.getTime?.()) || when.getTime() <= 0) return;
+      const k = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, "0")}-${String(when.getDate()).padStart(2, "0")}`;
+      out[k] = (out[k] || 0) + (xp || 0);
+    };
+    recs.forEach((r) => {
+      r.lotes.forEach((x) => add(x.when, x.xp));
+      r.pedidos.forEach((x) => add(x.when, x.xp));
+      r.tarefas.forEach((x) => add(x.when, x.xp));
+    });
+    return out;
+  }
+
+  // Card do mapa de calor por INTENSIDADE de XP (ficha de 1 colaborador).
   function heatmapCard(recs, title) {
-    const html = activityHeatmapHTML(countsByDayFromRecords(recs));
+    const html = activityHeatmapHTML(xpByDayFromRecords(recs));
     if (!html) return "";
     return `
       <div class="card cyber-chamfer mb-2" style="padding:1rem;overflow-x:auto;">
@@ -193,27 +209,27 @@ export async function renderRecords(container, params) {
       </div>`;
   }
 
-  // Conta eventos (lotes + pedidos + tarefas) por dia E por pessoa.
-  function dayPersonCountsFromRecords(recs) {
+  // XP por dia E por pessoa — usado no mapa GERAL (linhas).
+  function xpByDayPersonFromRecords(recs) {
     const out = {};
-    const add = (when, sid) => {
+    const add = (when, sid, xp) => {
       if (!when || Number.isNaN(when.getTime?.()) || when.getTime() <= 0) return;
       const k = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, "0")}-${String(when.getDate()).padStart(2, "0")}`;
       if (!out[k]) out[k] = {};
-      out[k][sid] = (out[k][sid] || 0) + 1;
+      out[k][sid] = (out[k][sid] || 0) + (xp || 0);
     };
     recs.forEach((r) => {
-      r.lotes.forEach((x) => add(x.when, r.stockistId));
-      r.pedidos.forEach((x) => add(x.when, r.stockistId));
-      r.tarefas.forEach((x) => add(x.when, r.stockistId));
+      r.lotes.forEach((x) => add(x.when, r.stockistId, x.xp));
+      r.pedidos.forEach((x) => add(x.when, r.stockistId, x.xp));
+      r.tarefas.forEach((x) => add(x.when, r.stockistId, x.xp));
     });
     return out;
   }
 
-  // Card do mapa de calor GERAL: uma linha por pessoa (cor da pessoa, intensidade por dia).
+  // Card do mapa de calor GERAL: uma linha por pessoa (cor da pessoa, XP por dia).
   function heatmapPersonCard(recs, title) {
     const people = assignPersonColors(recs.map((r) => ({ id: r.stockistId, name: r.name })));
-    const html = activityRowsHeatmapHTML(dayPersonCountsFromRecords(recs), people);
+    const html = activityRowsHeatmapHTML(xpByDayPersonFromRecords(recs), people);
     if (!html) return "";
     return `
       <div class="card cyber-chamfer mb-2" style="padding:1rem;overflow-x:auto;">
@@ -533,7 +549,7 @@ export async function renderRecords(container, params) {
                value="${esc(searchValue)}">
       </div>
 
-      ${heatmapPersonCard(records, "ATIVIDADE POR DIA — GERAL")}
+      ${heatmapPersonCard(records, "XP POR DIA — GERAL")}
 
       ${chartsCard(records)}
 
@@ -701,7 +717,7 @@ export async function renderRecords(container, params) {
         </div>
       </div>
 
-      ${heatmapCard([rec], "ATIVIDADE POR DIA")}
+      ${heatmapCard([rec], "XP POR DIA")}
 
       ${chartsCard([rec])}
 

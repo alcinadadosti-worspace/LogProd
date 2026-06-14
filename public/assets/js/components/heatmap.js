@@ -124,7 +124,7 @@ export function activityHeatmapHTML(countsByDay) {
     const c = counts[key] || 0;
     return {
       style: SCALE[levelOf(c, max)],
-      title: `${pad(d)}/${pad(month + 1)}/${year} — ${c} evento${c === 1 ? "" : "s"}`,
+      title: `${pad(d)}/${pad(month + 1)}/${year} — ${c} XP`,
     };
   };
 
@@ -158,7 +158,7 @@ function monthRowsBlock(year, month, byDay, rows, max) {
             return `<div title="${esc(p.name)} · ${dateStr} — sem atividade" style="width:16px;height:16px;border-radius:2px;${EMPTY_STYLE}"></div>`;
           }
           const alpha = [0, 0.32, 0.52, 0.74, 0.96][levelOf(c, max)];
-          return `<div title="${esc(p.name)} · ${dateStr} — ${c} evento${c === 1 ? "" : "s"}" style="width:16px;height:16px;border-radius:2px;background:${hexToRgba(p.color, alpha)};border:1px solid ${hexToRgba(p.color, Math.min(1, alpha + 0.12))};"></div>`;
+          return `<div title="${esc(p.name)} · ${dateStr} — ${c} XP" style="width:16px;height:16px;border-radius:2px;background:${hexToRgba(p.color, alpha)};border:1px solid ${hexToRgba(p.color, Math.min(1, alpha + 0.12))};"></div>`;
         })
         .join("");
       return label + cells;
