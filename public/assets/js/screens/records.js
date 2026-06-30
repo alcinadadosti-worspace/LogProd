@@ -68,6 +68,23 @@ function esc(s) {
     .replace(/"/g, "&quot;");
 }
 
+// Casa um item da aba de detalhe (lotes/pedidos/caixas/tarefas) com o termo de
+// busca `f` (já em minúsculas). Inclui o orderCode da caixa, que a busca da grade
+// não cobre — útil para localizar a caixa de um pedido específico.
+function matchDetailItem(tab, x, f) {
+  if (tab === "lotes")
+    return (x.code || "").toLowerCase().includes(f) || (x.type || "").toLowerCase().includes(f);
+  if (tab === "pedidos")
+    return (x.code || "").toLowerCase().includes(f) || (x.boxCode && String(x.boxCode).toLowerCase().includes(f));
+  if (tab === "caixas")
+    return (x.code || "").toLowerCase().includes(f) ||
+      (x.origin || "").toLowerCase().includes(f) ||
+      (x.orderCode && String(x.orderCode).toLowerCase().includes(f));
+  if (tab === "tarefas")
+    return (x.taskName || "").toLowerCase().includes(f);
+  return true;
+}
+
 // ─── Comparativo de estoquistas ───────────────────────────────────────────────
 // Quatro indicadores em gráficos de barras VERTICAIS, um por estoquista.
 // IMPORTANTE: "itens" = SOMA DAS QUANTIDADES (peças), não nº de materiais
@@ -203,6 +220,8 @@ export async function renderRecords(container, params) {
   let pageByTab = { lotes: 1, pedidos: 1, caixas: 1, tarefas: 1 };
   let searchValue = "";
   let searchDebounce = null;
+  let detailSearch = "";
+  let detailSearchDebounce = null;
   let currentData = null;
   let recCharts = [];
 
@@ -832,6 +851,7 @@ export async function renderRecords(container, params) {
         selectedStockistId = card.dataset.id;
         activeTab = "lotes";
         pageByTab = { lotes: 1, pedidos: 1, caixas: 1, tarefas: 1 };
+        detailSearch = "";
         renderCurrentView();
       });
     });
@@ -891,6 +911,13 @@ export async function renderRecords(container, params) {
 
       ${chartsCard([rec])}
 
+      <div class="card cyber-chamfer mb-2" style="padding:0.6rem 1rem;">
+        <input id="detail-search" type="text" class="input"
+               placeholder="🔎 Filtrar nesta aba (lote, pedido, nº da caixa, tarefa...)"
+               style="width:100%;font-family:var(--font-terminal);"
+               autocomplete="off" inputmode="search" value="${esc(detailSearch)}">
+      </div>
+
       <div id="detail-content"></div>
     `;
 
@@ -908,9 +935,24 @@ export async function renderRecords(container, params) {
     page.querySelectorAll(".tab-btn-rec").forEach((btn) => {
       btn.addEventListener("click", () => {
         activeTab = btn.dataset.tab;
+        pageByTab[activeTab] = 1;
         renderDetailContent(rec);
       });
     });
+
+    const ds = page.querySelector("#detail-search");
+    if (ds) {
+      ds.addEventListener("input", (e) => {
+        if (detailSearchDebounce) clearTimeout(detailSearchDebounce);
+        const v = e.target.value;
+        detailSearchDebounce = setTimeout(() => {
+          detailSearchDebounce = null;
+          detailSearch = v;
+          pageByTab[activeTab] = 1;
+          renderDetailContent(rec);
+        }, 120);
+      });
+    }
 
     renderDetailContent(rec);
     drawCharts([rec]);
@@ -943,21 +985,25 @@ export async function renderRecords(container, params) {
       btn.style.background = isActive ? color + "22" : "transparent";
     });
 
-    const items =
+    const all =
       activeTab === "lotes" ? rec.lotes :
       activeTab === "pedidos" ? rec.pedidos :
       activeTab === "caixas" ? rec.caixas :
       rec.tarefas;
 
+    const f = detailSearch.trim().toLowerCase();
+    const items = f ? all.filter((x) => matchDetailItem(activeTab, x, f)) : all;
+
     if (items.length === 0) {
       wrap.innerHTML = `<div class="card cyber-chamfer" style="padding:2rem;text-align:center;color:var(--muted-fg);font-family:var(--font-terminal);font-size:0.8rem;">
-        Nenhum(a) ${activeTab} no período.
+        ${f ? `Nada encontrado para "${esc(detailSearch)}" em ${activeTab}.` : `Nenhum(a) ${activeTab} no período.`}
       </div>`;
       return;
     }
 
-    const pageNum = pageByTab[activeTab] || 1;
+    let pageNum = pageByTab[activeTab] || 1;
     const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    if (pageNum > totalPages) { pageNum = totalPages; pageByTab[activeTab] = totalPages; }
     const start = (pageNum - 1) * PAGE_SIZE;
     const slice = items.slice(start, start + PAGE_SIZE);
 
@@ -1078,6 +1124,10 @@ export async function renderRecords(container, params) {
     if (searchDebounce) {
       clearTimeout(searchDebounce);
       searchDebounce = null;
+    }
+    if (detailSearchDebounce) {
+      clearTimeout(detailSearchDebounce);
+      detailSearchDebounce = null;
     }
     destroyRecCharts();
   };
