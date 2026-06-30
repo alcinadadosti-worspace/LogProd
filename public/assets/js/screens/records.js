@@ -80,6 +80,7 @@ const CMP_INDICATORS = [
   { key: "itensSeparados", label: "ITENS SEPARADOS", icon: "📦", color: "#059669", hint: "Peças retiradas na separação" },
   { key: "caixas",         label: "CAIXAS LACRADAS", icon: "▣",  color: "#7c3aed", hint: "Caixas fechadas na bipagem" },
   { key: "itens",          label: "ITENS BIPADOS",   icon: "🔢", color: "#d97706", hint: "Peças conferidas na bipagem" },
+  { key: "tarefas",        label: "TAREFAS",         icon: "🎯", color: "#ec4899", hint: "Tarefas concluídas" },
 ];
 
 function cmpRgba(hex, a) {
@@ -122,7 +123,7 @@ function buildComparison(data) {
       map[id] = {
         stockistId: id,
         name: stockistNames[id] || id,
-        pedidos: 0, itensSeparados: 0, caixas: 0, itens: 0, xp: 0,
+        pedidos: 0, itensSeparados: 0, caixas: 0, itens: 0, tarefas: 0, xp: 0,
       };
     }
     return map[id];
@@ -148,10 +149,12 @@ function buildComparison(data) {
       rec.itensSeparados += it;
       rec.itens += it;
       if (so.boxCode) rec.caixas += 1;
+    } else if (ev.type === "TASK") {
+      rec.tarefas += ev.task?.quantity || 1; // cada evento de tarefa = 1 execução
     }
   }
   return Object.values(map)
-    .filter((r) => r.pedidos + r.itensSeparados + r.caixas + r.itens > 0)
+    .filter((r) => r.pedidos + r.itensSeparados + r.caixas + r.itens + r.tarefas > 0)
     .sort((a, b) => b.xp - a.xp);
 }
 
