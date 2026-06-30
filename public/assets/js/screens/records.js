@@ -68,6 +68,119 @@ function esc(s) {
     .replace(/"/g, "&quot;");
 }
 
+// ─── Comparativo de estoquistas ───────────────────────────────────────────────
+// Quatro indicadores em gráficos de barras VERTICAIS, um por estoquista.
+// IMPORTANTE: "itens" = SOMA DAS QUANTIDADES (peças), não nº de materiais
+// distintos — ex.: 1 material com qtd. 5 conta como 5 itens. Mesma semântica de
+// separação (BATCH/ONLY_SEPARATION) vs bipagem (BATCH/ONLY_BIPPING/SINGLE_ORDER)
+// usada no XP. O conjunto de eventos já vem filtrado por acesso (admin = todas as
+// unidades; login de unidade = só a própria), então basta agregar por estoquista.
+const CMP_INDICATORS = [
+  { key: "pedidos",        label: "PEDIDOS",         icon: "📋", color: "#0284c7", hint: "Pedidos (lotes + avulsos)" },
+  { key: "itensSeparados", label: "ITENS SEPARADOS", icon: "📦", color: "#059669", hint: "Peças retiradas na separação" },
+  { key: "caixas",         label: "CAIXAS LACRADAS", icon: "▣",  color: "#7c3aed", hint: "Caixas fechadas na bipagem" },
+  { key: "itens",          label: "ITENS BIPADOS",   icon: "🔢", color: "#d97706", hint: "Peças conferidas na bipagem" },
+];
+
+function cmpRgba(hex, a) {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// Plugin inline: escreve o valor ACIMA de cada barra (não só no hover).
+const cmpValueLabels = {
+  id: "cmpValueLabels",
+  afterDatasetsDraw(chart) {
+    const meta = chart.getDatasetMeta(0);
+    if (!meta) return;
+    const { ctx } = chart;
+    ctx.save();
+    ctx.font = '700 11px "Share Tech Mono", monospace';
+    ctx.fillStyle = "#1e1b4b";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    meta.data.forEach((bar, i) => {
+      const v = chart.data.datasets[0].data[i];
+      if (v == null) return;
+      ctx.fillText((v || 0).toLocaleString("pt-BR"), bar.x, bar.y - 4);
+    });
+    ctx.restore();
+  },
+};
+
+// Agrega as métricas de comparação por estoquista a partir dos eventos brutos.
+// Chaveado por stockistId, igual ao restante da tela de Registros.
+function buildComparison(data) {
+  const { events, stockistNames } = data;
+  const map = {};
+  const ensure = (id) => {
+    if (!id) return null;
+    if (!map[id]) {
+      map[id] = {
+        stockistId: id,
+        name: stockistNames[id] || id,
+        pedidos: 0, itensSeparados: 0, caixas: 0, itens: 0, xp: 0,
+      };
+    }
+    return map[id];
+  };
+  for (const ev of events) {
+    const rec = ensure(ev.stockistId);
+    if (!rec) continue;
+    rec.xp += ev.xp || 0;
+    const b = ev.batch;
+    if (b && ["BATCH", "ONLY_SEPARATION", "ONLY_BIPPING"].includes(ev.type)) {
+      rec.pedidos += b.totalOrders || 0;
+      if (ev.type === "BATCH" || ev.type === "ONLY_SEPARATION") {
+        rec.itensSeparados += b.totalItems || 0; // fase de separação
+      }
+      if (ev.type === "BATCH" || ev.type === "ONLY_BIPPING") {
+        rec.itens += b.totalItems || 0; // fase de bipagem
+        rec.caixas += Object.keys(b.boxCodes || {}).length;
+      }
+    } else if (ev.type === "SINGLE_ORDER") {
+      const so = ev.singleOrder || ev.batch || {};
+      const it = so.items || so.totalItems || 1;
+      rec.pedidos += 1;
+      rec.itensSeparados += it;
+      rec.itens += it;
+      if (so.boxCode) rec.caixas += 1;
+    }
+  }
+  return Object.values(map)
+    .filter((r) => r.pedidos + r.itensSeparados + r.caixas + r.itens > 0)
+    .sort((a, b) => b.xp - a.xp);
+}
+
+// Card com os 4 gráficos de comparação (vazio se não houver atividade).
+function comparisonCard(comp, isAdmin) {
+  if (!comp.length) return "";
+  const scope = isAdmin
+    ? "todos os estoquistas de todas as unidades"
+    : "os estoquistas da sua unidade";
+  return `
+    <div class="card cyber-chamfer mb-2" style="padding:1rem;">
+      <div class="section-title" style="margin:0 0 0.35rem;">⚔ COMPARATIVO DE ESTOQUISTAS</div>
+      <div class="text-muted text-xs" style="font-family:var(--font-terminal);letter-spacing:0.05em;line-height:1.5;margin-bottom:0.75rem;">
+        Comparando ${scope}. <strong>Itens = soma das quantidades (peças)</strong>, não o nº de materiais distintos
+        — ex.: 1 material com qtd. 5 conta como <strong>5 itens</strong>. ${comp.length} estoquista(s).
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.2rem;">
+        ${CMP_INDICATORS.map((ind) => `
+          <div>
+            <div style="font-family:var(--font-terminal);font-size:0.6rem;letter-spacing:0.12em;color:var(--muted-fg);margin-bottom:0.4rem;">
+              ${ind.icon} ${ind.label}
+            </div>
+            <div style="position:relative;height:240px;"><canvas id="cmp-ch-${ind.key}"></canvas></div>
+          </div>
+        `).join("")}
+      </div>
+    </div>`;
+}
+
 export async function renderRecords(container, params) {
   if (!getCurrentUser()) {
     navigate("/login");
@@ -345,6 +458,56 @@ export async function renderRecords(container, params) {
     }
   }
 
+  // Desenha os 4 gráficos de barras verticais de comparação entre estoquistas.
+  function drawComparisonCharts(comp) {
+    if (typeof Chart === "undefined" || !comp.length) return;
+    const tick = "#6d28d9";
+    const grid = "rgba(124,58,237,0.12)";
+    const shortNames = comp.map((r) => r.name.split(" ")[0]);
+    const fullNames = comp.map((r) => r.name);
+
+    CMP_INDICATORS.forEach((ind) => {
+      const el = page.querySelector(`#cmp-ch-${ind.key}`);
+      if (!el) return;
+      const vals = comp.map((r) => r[ind.key]);
+      recCharts.push(
+        new Chart(el, {
+          type: "bar",
+          data: {
+            labels: shortNames,
+            datasets: [{
+              data: vals,
+              backgroundColor: cmpRgba(ind.color, 0.85),
+              borderColor: ind.color,
+              borderWidth: 1.5,
+              borderRadius: 3,
+              maxBarThickness: 46,
+            }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { top: 18 } },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  title: (items) => fullNames[items[0].dataIndex],
+                  label: (c) => `${ind.label}: ${(c.parsed.y || 0).toLocaleString("pt-BR")}`,
+                },
+              },
+            },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: tick, font: { family: "Share Tech Mono", size: 9 }, maxRotation: 60, minRotation: 0 } },
+              y: { beginAtZero: true, grid: { color: grid }, ticks: { color: tick, font: { size: 9 }, precision: 0 } },
+            },
+          },
+          plugins: [cmpValueLabels],
+        }),
+      );
+    });
+  }
+
   async function load(forceRefresh = false) {
     const cacheKey = `${period}:${customRange.start}:${customRange.end}:${isAdmin ? "admin" : ctx.unitId}`;
 
@@ -535,6 +698,7 @@ export async function renderRecords(container, params) {
   function renderGrid(data) {
     const byStockist = buildPerStockist(data);
     const records = Object.values(byStockist).sort((a, b) => b.xp - a.xp);
+    const comp = buildComparison(data);
 
     page.innerHTML = `
       <div class="card cyber-chamfer mb-2" style="padding:1rem;">
@@ -550,6 +714,8 @@ export async function renderRecords(container, params) {
       </div>
 
       ${heatmapPersonCard(records, "XP POR DIA — GERAL")}
+
+      ${comparisonCard(comp, isAdmin)}
 
       ${chartsCard(records)}
 
@@ -569,6 +735,7 @@ export async function renderRecords(container, params) {
 
     renderGridContent(records);
     drawCharts(records);
+    drawComparisonCharts(comp);
   }
 
   function renderGridContent(records) {
